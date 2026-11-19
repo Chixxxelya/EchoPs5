@@ -141,6 +141,17 @@ const QList<QPair<QString, QString>>& Configuration::PerformanceProfileVariables
 	    {QStringLiteral("KYTY_DRAW_PREP_WINDOW"), QStringLiteral("64")},
 	    {QStringLiteral("KYTY_DRAW_PREP_HOT"), QStringLiteral("4")},
 	    {QStringLiteral("KYTY_DRAW_PREP_STEAL"), QStringLiteral("1")},
+	    // The commit thread's per-draw bookkeeping reduced to runs (drawPrep/bookkeep.h, tested in
+	    // BookkeepTests): one ready check per run of prepared slots instead of per draw, stage
+	    // preparations adopted by pointer, a continuation's record update cut to its descriptor
+	    // epoch, and the rendering state used by reference.
+	    {QStringLiteral("KYTY_BK_HANDOVER"), QStringLiteral("1")},
+	    {QStringLiteral("KYTY_BK_ADOPT"), QStringLiteral("1")},
+	    {QStringLiteral("KYTY_BK_RECORD"), QStringLiteral("1")},
+	    {QStringLiteral("KYTY_BK_LEAN"), QStringLiteral("1")},
+	    // Formatted (texel) read bindings take the lock-free "nothing to upload" test and the read
+	    // memo (bufferCache.cpp documents 15.5 us -> 0.6 us per binding on Miles Morales).
+	    {QStringLiteral("KYTY_TEXEL_RELAXED_SYNC"), QStringLiteral("2")},
 	};
 	return variables;
 }

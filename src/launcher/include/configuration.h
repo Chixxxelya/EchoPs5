@@ -321,8 +321,7 @@ public:
 	// everything the presets set. Both live per game (key performance_profile) and are live switches
 	// of the emulator, so a wrong picture is fixed by turning the profile off, not by a rebuild.
 	[[nodiscard]] static const QList<QPair<QString, QString>>& PerformanceProfileVariables();
-	void ApplyPerformanceProfile(QProcessEnvironment& environment) const;
-	// Call on a temporary configuration: validation can fail after loading values.
+	void ApplyPerformanceProfile(QProcessEnvironment& environment) const;	// Call on a temporary configuration: validation can fail after loading values.
 	bool SetGameSettings(const QJsonObject& settings, QString& error);
 
 	// The launcher settings a title was tested with (the table in configuration.cpp), as in a game

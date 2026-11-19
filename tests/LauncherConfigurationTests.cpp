@@ -240,7 +240,7 @@ int main() {
 
 		fast.ApplyPerformanceProfile(environment);
 		const auto& variables = Configuration::PerformanceProfileVariables();
-		Check(variables.size() == 10, "ten switches in the fast profile");
+		Check(variables.size() == 15, "fifteen switches in the fast profile");
 		for (const auto& [key, value]: variables) {
 			Check(environment.value(key) == value, "fast: every switch is set");
 		}

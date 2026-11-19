@@ -172,6 +172,8 @@ has that trades correctness for frame time:
 | `KYTY_DRAW_PREP_WINDOW=64` (default 32) | deeper preparation window: more draws resolved ahead, more memory live |
 | `KYTY_DRAW_PREP_HOT=4` (default: a share of the 6 workers) | more workers spin instead of parking: they take CPU from guest threads |
 | `KYTY_DRAW_PREP_STEAL=1` | a worker prepares another slot while its own is still busy: more parallel work, more contention |
+| `KYTY_BK_HANDOVER=1`, `KYTY_BK_ADOPT=1`, `KYTY_BK_RECORD=1`, `KYTY_BK_LEAN=1` | the commit thread's per-draw bookkeeping reduced to runs (drawPrep/bookkeep.h, BookkeepTests): fewer atomic checks, pointer adoption of stage preparations, a smaller record update |
+| `KYTY_TEXEL_RELAXED_SYNC=2` | texel read bindings take the lock-free check and the read memo; bufferCache.cpp documents 15.5 us -> 0.6 us per binding on Miles Morales, 0 mismatches in its verify modes |
 
 The three draw-prep switches are the multithreading knobs: what the commit thread cannot do in order is
 prepared ahead by workers. They help only when the commit thread waits for preparation — `CpGaps`
