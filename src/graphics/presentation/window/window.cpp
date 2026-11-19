@@ -1,4 +1,4 @@
-﻿#include "graphics/presentation/window.h"
+#include "graphics/presentation/window.h"
 
 #include "common/assert.h"
 #include "common/common.h"
@@ -185,7 +185,7 @@ static void RefreshDisplayLuminance(SDL_Window* window) {
 static void RefreshDisplayLuminance(SDL_Window* /*window*/) {}
 #endif
 
-constexpr const char* KYTY_SDL_WINDOW_CAPTION = "Game";
+constexpr const char* KYTY_SDL_WINDOW_CAPTION = "EchoPS";
 
 static void GameEventQuit(WindowLoopState& game) {
 	LOGF("Event: quit\n");

@@ -45,6 +45,12 @@ static QString ApplyBundledPreset() {
 
 int main(int argc, char* argv[]) {
 	QApplication a(argc, argv);
+	// EchoPS: the fork's own name in title bars and dialogs. The executable names, the Kyty.ini
+	// settings file and the KYTY_* switches stay as they are, so saves, caches and scripts keep
+	// working (a rename of the binaries is a later, separate step).
+	QApplication::setApplicationName(QStringLiteral("EchoPS"));
+	QApplication::setApplicationDisplayName(QStringLiteral("EchoPS"));
+	QApplication::setOrganizationName(QStringLiteral("EchoPS"));
 	// Title bars and taskbars get the bolder small-size artwork.
 	const QIcon small_art(QStringLiteral(":/icons/kyty-small.svg"));
 	const QIcon large_art(QStringLiteral(":/icons/kyty.svg"));
