@@ -4,13 +4,15 @@ on:
   push:
     tags:
       - 'u59-windows-*'
+  # Manual CI builds work in every fork. Tagged builds still create the release below; a manual run
+  # uploads the same package as a workflow artifact instead of requiring a tag or a fork allowlist.
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   windows:
-    if: github.repository == 'Jetsku/KytyPS5-experimental' || github.repository == 'Jetsku/KytyPS5'
     runs-on: windows-2022
     steps:
       - name: Check out experimental source
@@ -184,7 +186,15 @@ jobs:
           Compress-Archive -Path (Join-Path $release '*') -DestinationPath $archive
           "archive=$archive" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
+      - name: Upload Windows test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: EchoPS-Windows-x64-${{ github.sha }}
+          path: KytyPS5-U59-Windows-x64.zip
+          retention-days: 14
+
       - name: Publish experimental build
+        if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
