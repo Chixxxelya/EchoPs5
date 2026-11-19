@@ -131,3 +131,27 @@ Do not ship a guessed value. After a baseline, test one additional title-preset 
 
 Compare 4, 8 and 16 in separate runs. Keep the value only if frame time improves without worse pacing
 or rendering. Restore the preset afterwards if it regresses.
+
+## Picture-forbidden profile (`fast`)
+
+`tools\presets\u59-preset.PPSA26344.fast.json` is the shipped Yotei preset plus every switch this fork
+has that trades correctness for frame time:
+
+| Switch | What it gives up |
+|---|---|
+| `KYTY_GPU_HAZARD=3`, `KYTY_INDIRECT_ARGS_RANGES=1`, `KYTY_GUEST_BARRIER_SCOPE=rel=drop`, `KYTY_DMA_BARRIER_BATCH=1` | the launcher's "Faster GPU synchronisation": fewer redundant barriers, can glitch |
+| `KYTY_SKIP_OCCLUSION_VISIBLE=1` | occlusion results of skipped draws are biased: occasional wrong culling |
+| `KYTY_SUBMIT_EVERY=8` | more commands per submit: possible added latency |
+| `KYTY_PIPELINE_SKIP_WAIT_US=500` | a draw waits 0.5 ms instead of 2 ms for a new pipeline, then is skipped |
+
+Switch profiles with the helper (it keeps `u59-preset.<title>.json.profile-backup`):
+
+```powershell
+.\tools\benchmark\echops_profile.ps1 -EmulatorDir 'D:\workPs' -Profile fast
+# play / measure
+.\tools\benchmark\echops_profile.ps1 -EmulatorDir 'D:\workPs' -Restore
+```
+
+Measure it exactly like the shipped profile, on the same route, and compare the JSON reports. If the
+picture or frame pacing gets worse, keep the shipped profile; a faster average FPS with visible
+artifacts is not a win.
