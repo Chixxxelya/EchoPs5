@@ -169,6 +169,15 @@ has that trades correctness for frame time:
 | `KYTY_SKIP_OCCLUSION_VISIBLE=1` | occlusion results of skipped draws are biased: occasional wrong culling |
 | `KYTY_SUBMIT_EVERY=8` | more commands per submit: possible added latency |
 | `KYTY_PIPELINE_SKIP_WAIT_US=500` | a draw waits 0.5 ms instead of 2 ms for a new pipeline, then is skipped |
+| `KYTY_DRAW_PREP_WINDOW=64` (default 32) | deeper preparation window: more draws resolved ahead, more memory live |
+| `KYTY_DRAW_PREP_HOT=4` (default: a share of the 6 workers) | more workers spin instead of parking: they take CPU from guest threads |
+| `KYTY_DRAW_PREP_STEAL=1` | a worker prepares another slot while its own is still busy: more parallel work, more contention |
+
+The three draw-prep switches are the multithreading knobs: what the commit thread cannot do in order is
+prepared ahead by workers. They help only when the commit thread waits for preparation — `CpGaps`
+(diagnostics build) shows that wait; if the commit thread is busy with its own work instead, these
+switch make it worse. `KYTY_DRAW_PREP_ADAPT=1` is the alternative to the manual `HOT` value and is
+ignored while both are set.
 
 Switch profiles with the helper (it keeps `u59-preset.<title>.json.profile-backup`):
 
