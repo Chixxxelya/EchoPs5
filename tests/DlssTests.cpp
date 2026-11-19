@@ -70,8 +70,8 @@ constexpr std::array<ModeSizes, 6> MODES {{{1920, 1280, 2560},
                                            {2227, 1484, 2560},
                                            {2560, 1707, 2560},
                                            {1280, 1280, 1280},
-                                           {0, 1280, 3840},
-                                           {3840, 1280, 3840}}};
+                                           {3840, 1280, 3840},
+                                           {0, 1280, 3840}}};
 bool g_dynamic = true; // whether the model reports dynamic render ranges
 
 int OptimalSettings(Dlss::Parameter* parameters) {
@@ -192,9 +192,9 @@ TEST(DlssTest, ModeRangesPickTheCreation) {
 	          Creation({3840, 2160, Pssr::kReverseDepth, 0, 1280, 720, 2560, 1440}));
 	EXPECT_EQ(choose(1280, 720),
 	          Creation({3840, 2160, Pssr::kReverseDepth, 3, 1280, 720, 1280, 720}));
-	// DLAA takes the output size only, and an absent mode takes nothing.
+	// DLAA (mode 4) takes the output size only, and an absent mode takes nothing.
 	EXPECT_EQ(choose(3840, 2160),
-	          Creation({3840, 2160, Pssr::kReverseDepth, 5, 3840, 2160, 3840, 2160}));
+	          Creation({3840, 2160, Pssr::kReverseDepth, 4, 3840, 2160, 3840, 2160}));
 	EXPECT_EQ(choose(3000, 1688), std::nullopt);
 
 	// Without dynamic ranges each mode takes its optimal size.
@@ -205,6 +205,37 @@ TEST(DlssTest, ModeRangesPickTheCreation) {
 	          Creation({3840, 2160, Pssr::kReverseDepth, 1, 2227, 1252, 2227, 1252}));
 	EXPECT_EQ(choose(2000, 1125), std::nullopt);
 	g_dynamic = true;
+}
+
+TEST(DlssTest, ExplicitQualityModeOverridesTheNearestMode) {
+	Recorder capabilities;
+	capabilities.values["DLSSOptimalSettingsCallback"] = reinterpret_cast<void*>(&OptimalSettings);
+	Dlss::Inputs inputs {};
+	inputs.output = {.width = 3840, .height = 2160};
+	const auto choose = [&](uint32_t width, uint32_t height, int quality) {
+		auto request   = TemporalRequest();
+		request.width  = width;
+		request.height = height;
+		request.flags  = Pssr::kReverseDepth;
+		return Dlss::Choose(capabilities, request, inputs, quality);
+	};
+	// Auto picks performance here; pinning balanced must not replace it with the nearer mode.
+	const auto automatic = choose(1920, 1080, Dlss::kQualityAuto);
+	ASSERT_TRUE(automatic.has_value());
+	EXPECT_EQ(automatic->mode, 0);
+	const auto balanced = choose(1920, 1080, 1);
+	ASSERT_TRUE(balanced.has_value());
+	EXPECT_EQ(balanced->mode, 1);
+	// Ultra performance only takes 1280x720 in this model; DLAA only takes the output size.
+	EXPECT_EQ(choose(1920, 1080, 3), std::nullopt);
+	const auto dlaa = choose(3840, 2160, 4);
+	ASSERT_TRUE(dlaa.has_value());
+	EXPECT_EQ(dlaa->mode, 4);
+	// Mode 5 is absent in MODES; an out-of-range value falls back to auto rather than pinning.
+	EXPECT_EQ(choose(1920, 1080, 5), std::nullopt);
+	const auto fallback = choose(1920, 1080, 0xFF);
+	ASSERT_TRUE(fallback.has_value());
+	EXPECT_EQ(fallback->mode, 0);
 }
 
 TEST(DlssTest, FeaturesTakeRequestsInTheirRange) {
@@ -250,10 +281,15 @@ TEST(DlssTest, CreationSetsTheModeAndFlags) {
 	     {"DLAA", "Quality", "Balanced", "Performance", "UltraPerformance", "UltraQuality"}) {
 		EXPECT_EQ(values[std::string("DLSS.Hint.Render.Preset.") + mode], Value(11u)) << mode;
 	}
-	EXPECT_EQ(values.size(), 14u);
+	EXPECT_EQ(values["Sharpness"], Value(0.0f));
+	EXPECT_EQ(values.size(), 15u);
 
+	Config::ConfigOptions options;
+	options.dlss_sharpness = 0.65f;
+	Config::Load(options);
 	Dlss::SetCreation(recorder, {3840, 2160, 0, 2, 1707, 960, 2560, 1440}, 0);
 	EXPECT_EQ(values["DLSS.Feature.Create.Flags"], Value((1 << 0) | (1 << 1)));
+	EXPECT_EQ(values["Sharpness"], Value(0.65f));
 }
 
 TEST(DlssTest, EvaluationPassesTheRequest) {
@@ -270,6 +306,9 @@ TEST(DlssTest, EvaluationPassesTheRequest) {
 	Dlss::Resource exposure {};
 	Dlss::Inputs   inputs {};
 	Recorder       recorder;
+	Config::ConfigOptions options;
+	options.dlss_sharpness = 0.35f;
+	Config::Load(options);
 	Dlss::SetEvaluation(recorder, request, inputs, true);
 	auto& values = recorder.values;
 	EXPECT_EQ(values["Color"], Value(static_cast<void*>(&inputs.color)));
@@ -283,6 +322,7 @@ TEST(DlssTest, EvaluationPassesTheRequest) {
 	EXPECT_EQ(values["MV.Scale.Y"], Value(450.0f));
 	EXPECT_EQ(values["DLSS.Pre.Exposure"], Value(0.5f));
 	EXPECT_EQ(values["Reset"], Value(1));
+	EXPECT_EQ(values["Sharpness"], Value(0.35f));
 	EXPECT_EQ(values["DLSS.Render.Subrect.Dimensions.Width"], Value(1600u));
 	EXPECT_EQ(values["DLSS.Render.Subrect.Dimensions.Height"], Value(900u));
 	for (const char* input: {"Color", "Depth", "MV"}) {
@@ -290,7 +330,7 @@ TEST(DlssTest, EvaluationPassesTheRequest) {
 		EXPECT_EQ(values[base + "X"], Value(8u)) << input;
 		EXPECT_EQ(values[base + "Y"], Value(4u)) << input;
 	}
-	EXPECT_EQ(values.size(), 19u);
+	EXPECT_EQ(values.size(), 20u);
 
 	inputs.exposure = &exposure;
 	Dlss::SetEvaluation(recorder, request, inputs, false);
@@ -308,7 +348,6 @@ TEST(DlssTest, LoadsOnlyInProModeWithAFolder) {
 	SDL_UnloadObject(ngx);
 	vk::ExtensionProperties properties2;
 	properties2.extensionName = std::string(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
-	Config::Initialize();
 	for (const auto& [pro, folder]: {std::pair {false, "dlss"}, {true, ""}, {true, "dlss"}}) {
 		Config::ConfigOptions options;
 		options.pro_enabled = pro;
@@ -320,12 +359,14 @@ TEST(DlssTest, LoadsOnlyInProModeWithAFolder) {
 		EXPECT_EQ(extensions.size(), pro && *folder != '\0' ? 1u : 0u) << pro << folder;
 		Dlss::Shutdown();
 	}
-	Config::Shutdown();
 }
 
 } // namespace
 
 int main(int argc, char** argv) {
 	testing::InitGoogleTest(&argc, argv);
-	return RUN_ALL_TESTS();
+	Config::Initialize();
+	const auto result = RUN_ALL_TESTS();
+	Config::Shutdown();
+	return result;
 }
