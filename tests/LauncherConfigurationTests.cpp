@@ -177,6 +177,45 @@ int main() {
 		      "the switches the preset leaves alone are added");
 	}
 
+	// Per-game DLSS quality/sharpness/preset: defaults, persistence, copying and validation.
+	{
+		Configuration defaults;
+		Check(defaults.dlss_quality == QStringLiteral("auto") && defaults.dlss_preset == 0 &&
+		          defaults.dlss_sharpness == 0,
+		      "DLSS defaults");
+		Configuration on;
+		on.dlss_folder    = QStringLiteral("C:\\dlss");
+		on.dlss_quality   = QStringLiteral("balanced");
+		on.dlss_preset    = 11;
+		on.dlss_sharpness = 65;
+		QSettings out(dir.filePath(QStringLiteral("dlss.ini")), QSettings::IniFormat);
+		on.WriteSettings(&out);
+		out.sync();
+		Configuration back;
+		back.ReadSettings(&out);
+		Check(back.dlss_folder == on.dlss_folder && back.dlss_quality == on.dlss_quality &&
+		          back.dlss_preset == 11 && back.dlss_sharpness == 65,
+		      "DLSS settings did not survive the per-game round trip");
+		Configuration copied;
+		copied.CopyEmulatorSettingsFrom(on);
+		Check(copied.dlss_folder == on.dlss_folder && copied.dlss_quality == on.dlss_quality &&
+		          copied.dlss_preset == 11 && copied.dlss_sharpness == 65,
+		      "CopyEmulatorSettingsFrom dropped DLSS settings");
+
+		out.setValue(QStringLiteral("dlss_quality"), QStringLiteral("not-a-mode"));
+		out.setValue(QStringLiteral("dlss_preset"), 99);
+		out.setValue(QStringLiteral("dlss_sharpness"), 150);
+		Configuration broken;
+		broken.ReadSettings(&out);
+		Check(broken.dlss_quality == QStringLiteral("auto") && broken.dlss_preset == 0 &&
+		          broken.dlss_sharpness == 100,
+		      "invalid DLSS values were not normalized");
+		Configuration imported;
+		Check(!imported.SetGameSettings(
+		          QJsonObject {{QStringLiteral("dlss_quality"), QStringLiteral("not-a-mode")}}, error),
+		      "invalid DLSS quality accepted on import");
+	}
+
 	Check(Configuration::ShaderOptimizationTypeFromText(QStringLiteral("None")) ==
 	          Configuration::ShaderOptimizationType::None,
 	      "None not parsed");
