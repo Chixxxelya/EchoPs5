@@ -21,6 +21,7 @@
 #include <cstring>
 #include <cstdio>
 #include <string>
+#include <unordered_set>
 
 namespace Libs::Graphics {
 
@@ -1318,13 +1319,20 @@ bool BindlessTable::RemapSlotImage(uint32_t binding, uint32_t slot, ImageId old_
 			moved.push_back(ref);
 			return true;
 		});
+		// `refs` does not change below, so "this heap still has another reference of old_id" is the
+		// same answer for every moved entry of that heap: one pass instead of a scan per entry.
+		std::unordered_set<Heap*> still_referenced;
+		still_referenced.reserve(refs.size());
+		for (const auto& ref: refs) {
+			still_referenced.insert(ref.first);
+		}
 		for (const auto& [heap, key]: moved) {
 			heap->images[key] = new_id;
 			if (std::find(heap->resolved.begin(), heap->resolved.end(), new_id) == heap->resolved.end()) {
 				heap->resolved.push_back(new_id);
 			}
 			heap->unchecked.push_back(new_id);
-			if (std::none_of(refs.begin(), refs.end(), [&](const auto& ref) { return ref.first == heap; })) {
+			if (!still_referenced.contains(heap)) {
 				std::erase(heap->resolved, old_id);
 				heap->checked_generation = 0;
 			}

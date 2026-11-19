@@ -455,10 +455,14 @@ void BufferCache::LiveSyncBufferRange(BufferId id, uint64_t start, uint64_t size
 	fresh.clear();
 	uint64_t           run = start;
 	size_t             h   = 0;
+	// The buffer's own range, hoisted out of the page loop: the test below read both ends of it for
+	// every page of the range (2777 pages per frame at Yotei's torii).
+	const auto buffer_begin = buffer.CpuAddress();
+	const auto buffer_end   = buffer_begin + buffer.Size();
 	for (auto page = first_page; page <= last_page; ++page) {
 		walked++;
 		const auto address   = page << CACHING_PAGEBITS;
-		const bool in_buffer = address >= buffer.CpuAddress() && address + PAGE <= buffer.CpuAddress() + buffer.Size();
+		const bool in_buffer = address >= buffer_begin && address + PAGE <= buffer_end;
 		while (h < held.size() && held[h] < page) {
 			++h;
 		}
