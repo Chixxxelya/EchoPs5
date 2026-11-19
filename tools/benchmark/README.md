@@ -190,3 +190,20 @@ Switch profiles with the helper (it keeps `u59-preset.<title>.json.profile-backu
 Measure it exactly like the shipped profile, on the same route, and compare the JSON reports. If the
 picture or frame pacing gets worse, keep the shipped profile; a faster average FPS with visible
 artifacts is not a win.
+
+### The same profile for every game
+
+`tools\presets\u59-preset.fast.json` is the global preset with the same aggressive switches, for titles
+that have no preset of their own (and as the base every title preset is applied over). Switch it with
+`-Global`:
+
+```powershell
+.\tools\benchmark\echops_profile.ps1 -EmulatorDir 'D:\workPs' -Global -Profile fast
+# play any game, measure
+.\tools\benchmark\echops_profile.ps1 -EmulatorDir 'D:\workPs' -Restore
+```
+
+`-Restore` finds the single backup on its own, whichever preset was replaced. Treat this as an
+experiment on one title at a time: the switches it adds (`KYTY_DRAW_RUN_FAULT_BUFFER`,
+`KYTY_SKIP_OCCLUSION_VISIBLE`, the draw-prep worker values) are not verified for every game, and a
+regression there looks like a wrong picture, not a crash.

@@ -30,6 +30,10 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'Restore')]
     [switch] $Restore,
 
+    # The global preset (u59-preset.json) instead of one title's: every game that has no title preset
+    # of its own, and as the base the title presets are applied over.
+    [switch] $Global,
+
     [string] $TitleId = 'PPSA26344'
 )
 
@@ -41,30 +45,38 @@ function Fail([string] $Message) {
 }
 
 $emulator = (Resolve-Path -LiteralPath $EmulatorDir).Path
-$target   = Join-Path $emulator "u59-preset.$TitleId.json"
+$presetName = if ($Global) { 'u59-preset.json' } else { "u59-preset.$TitleId.json" }
+$target   = Join-Path $emulator $presetName
 $backup   = "$target.profile-backup"
 $presets  = Join-Path $PSScriptRoot '..\presets'
 
 if ($Restore) {
     if (-not (Test-Path -LiteralPath $backup)) {
-        Fail "no profile backup at $backup; nothing to restore"
+        # The caller may have applied the other preset (global vs one title): restore whichever
+        # single backup is there instead of making the flag mandatory.
+        $found = @(Get-ChildItem -LiteralPath $emulator -Filter 'u59-preset*.json.profile-backup' -File)
+        if ($found.Count -ne 1) {
+            Fail "no single profile backup in $emulator; pass -Global or check the folder"
+        }
+        $backup = $found[0].FullName
+        $target = $backup.Substring(0, $backup.Length - '.profile-backup'.Length)
     }
     Copy-Item -LiteralPath $backup -Destination $target -Force
     Remove-Item -LiteralPath $backup -Force
-    Write-Host "Restored the previous $TitleId preset."
+    Write-Host "Restored the previous $(Split-Path -Leaf $target)."
     exit 0
 }
 
 $source = if ($Profile -eq 'fast') {
-    Join-Path $presets "u59-preset.$TitleId.fast.json"
+    Join-Path $presets $(if ($Global) { 'u59-preset.fast.json' } else { "u59-preset.$TitleId.fast.json" })
 } else {
-    Join-Path $presets "u59-preset.$TitleId.json"
+    Join-Path $presets $presetName
 }
 if (-not (Test-Path -LiteralPath $source)) {
     Fail "profile file not found: $source"
 }
 if (-not (Test-Path -LiteralPath $target)) {
-    Fail "the emulator has no $TitleId preset to replace: $target"
+    Fail "the emulator has no $presetName to replace: $target"
 }
 if (Test-Path -LiteralPath $backup) {
     Fail "a profile is already applied (backup at $backup); run -Restore first"
@@ -75,6 +87,6 @@ $null = Get-Content -LiteralPath $source -Raw -Encoding utf8 | ConvertFrom-Json
 
 Copy-Item -LiteralPath $target -Destination $backup
 Copy-Item -LiteralPath $source -Destination $target -Force
-Write-Host "Applied profile '$Profile' for $TitleId."
+Write-Host "Applied profile '$Profile' for $presetName."
 Write-Host "  previous preset: $backup"
 Write-Host "  install with    : .\echops_profile.ps1 -EmulatorDir '$EmulatorDir' -Restore"
