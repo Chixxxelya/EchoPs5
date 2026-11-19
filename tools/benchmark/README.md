@@ -121,6 +121,32 @@ The tests use in-memory CSV data, so they also run in restricted CI/sandbox file
 percentiles, low-FPS calculations, pace/stall parsing, comparisons and the CLI report path. They do not
 prove emulator performance or correctness on a GPU.
 
+## Finding the commit-thread bottleneck (diagnostics build)
+
+The release compiles the command processor's per-draw statistics out (`-DKYTY_CP_DIAGNOSTICS=OFF`), so
+no preset switch can report them. Build a diagnostics package instead: **Actions → U59 Windows
+release → Run workflow**, tick **diagnostics**, and take the artifact named `...-diag`. It is slower —
+use it only to measure.
+
+Then, with that build, add to the title preset:
+
+```json
+"KYTY_CP_COMMIT_STATS": "steps",
+"KYTY_CP_GAP_STATS": "1"
+```
+
+Play the route for ~60 s and collect the console lines (they repeat every 10 s):
+
+- `CommitStats 10s:` — phases of a committed draw, µs per draw, and how much of the work a run-level
+  commit could skip;
+- `StartPhases 10s:` — the same split by why a draw started instead of continuing a run;
+- `Steps 10s:` — per-step costs inside the commit;
+- `CpGaps 10s:` — the gap before a draw split by command-processor category.
+
+These lines answer the only question that decides whether the commit thread can be parallelised:
+what share of its time is per-draw work that a delta or another thread could remove. Send the lines
+together with the benchmark JSON.
+
 ## Submit-batching experiment
 
 Do not ship a guessed value. After a baseline, test one additional title-preset entry at a time:

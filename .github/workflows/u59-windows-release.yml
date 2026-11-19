@@ -7,6 +7,11 @@ on:
   # Manual CI builds work in every fork. Tagged builds still create the release below; a manual run
   # uploads the same package as a workflow artifact instead of requiring a tag or a fork allowlist.
   workflow_dispatch:
+    inputs:
+      diagnostics:
+        description: 'Keep the command processor diagnostics (KYTY_CP_COMMIT_STATS) in the build'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -87,14 +92,21 @@ jobs:
 
       - name: Configure Release
         shell: cmd
+        env:
+          DIAGNOSTICS: ${{ inputs.diagnostics }}
         run: |
           set LLVM=C:/LLVM-22.1.3/bin
           set PGO_PROFILE=C:/kyty-src19/tools/pgo/u59-int22-1.profdata
+          rem The release compiles the command processor's per-draw statistics out. A manual run with
+          rem "diagnostics" on keeps them (KYTY_CP_COMMIT_STATS), which costs speed but shows where the
+          rem commit thread's time goes.
+          set DIAG=OFF
+          if /I "%DIAGNOSTICS%"=="true" set DIAG=ON
           cmake -S C:\kyty-src19 -B _Build/windows ^
             -G Ninja ^
             -DCMAKE_BUILD_TYPE=Release ^
             -DKYTY_EMULATOR_IPO=ON ^
-            -DKYTY_CP_DIAGNOSTICS=OFF ^
+            -DKYTY_CP_DIAGNOSTICS=%DIAG% ^
             -DKYTY_MARCH=x86-64-v3 ^
             -DKYTY_PGO_USE=%PGO_PROFILE% ^
             -DKYTY_BUILD_ORIGIN=Fork ^
@@ -197,7 +209,7 @@ jobs:
       - name: Upload Windows test package
         uses: actions/upload-artifact@v4
         with:
-          name: EchoPS-Windows-x64-${{ github.sha }}
+          name: EchoPS-Windows-x64-${{ github.sha }}${{ inputs.diagnostics && '-diag' || '' }}
           path: KytyPS5-U59-Windows-x64.zip
           retention-days: 14
 
