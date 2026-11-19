@@ -378,7 +378,10 @@ void BufferCache::LiveSyncBufferRange(BufferId id, uint64_t start, uint64_t size
 		t.rejects_bound += bound;
 	};
 	// The redirected pages of the range, under one lock (only this thread changes the map).
-	std::vector<uint64_t> held;
+	// Reused across calls: this runs ~126 times per frame on Yotei, and a fresh allocation per call
+	// only added allocator traffic.
+	static thread_local std::vector<uint64_t> held;
+	held.clear();
 	{
 		std::scoped_lock lock(live.mutex);
 		for (auto it = live.pages.lower_bound(first_page); it != live.pages.end() && it->first <= last_page; ++it) {
@@ -404,7 +407,8 @@ void BufferCache::LiveSyncBufferRange(BufferId id, uint64_t start, uint64_t size
 		vk::DeviceAddress entry;
 		uint8_t           cpu_mask;
 	};
-	std::vector<Fresh> fresh;
+	static thread_local std::vector<Fresh> fresh;
+	fresh.clear();
 	uint64_t           run = start;
 	size_t             h   = 0;
 	for (auto page = first_page; page <= last_page; ++page) {
@@ -441,14 +445,24 @@ void BufferCache::LiveSyncBufferRange(BufferId id, uint64_t start, uint64_t size
 					}
 				}
 				if (!blocked) {
-					// Cheapest checks first: the lock-free dirty mirrors (exact on the GPU thread), then
-					// the window (I-A2: the page and the 64 bytes after it lie in one imported window),
-					// then the locked queries.
+					// Cheapest checks first: the lock-free dirty mirrors (exact on the GPU thread),
+					// then the rejections that need no window lookup, then the window itself (I-A2:
+					// the page and the 64 bytes after it lie in one imported window), then the
+					// remaining locked queries.
 					MemoryTracker::DirtyState state;
 					if (!m_memory_tracker.QueryDirtyRelaxed(address, PAGE, state)) {
 						state = m_memory_tracker.QueryDirty(address, PAGE);
 					}
 					if (state.cpu && !state.gpu) {
+						// A page rejected here is not redirected whatever the window says, so its
+						// backing alias and window lookup are skipped: GuestBackingAlias and
+						// Translate walk the imported windows, and this loop is 97 candidates per
+						// frame at Yotei's torii.
+						if (BdaTagAccessed(page) || m_memory_tracker.IsRegionHot(address, PAGE) ||
+						    HasGpuDirtyBytes(address, PAGE) || HasPendingBackingPublication(address, PAGE) ||
+						    m_texture_cache.IsRegionGpuModified(address, PAGE)) {
+							continue;
+						}
 						live.trigger        = address; // names the page in an import line
 						live.trigger_buffer = buffer.CpuAddress();
 						live.trigger_size   = buffer.Size();
@@ -459,9 +473,7 @@ void BufferCache::LiveSyncBufferRange(BufferId id, uint64_t start, uint64_t size
 						if (dev == 0) {
 							std::scoped_lock lock(live.mutex);
 							live.totals.rejects_window++;
-						} else if (!BdaTagAccessed(page) && !m_memory_tracker.IsRegionHot(address, PAGE) &&
-						           !HasGpuDirtyBytes(address, PAGE) && !HasPendingBackingPublication(address, PAGE) &&
-						           !m_texture_cache.IsRegionGpuModified(address, PAGE)) {
+						} else {
 							entry = dev;
 							if (verify) {
 								for (uint64_t k = 0; k < SUBPAGES; ++k) {
