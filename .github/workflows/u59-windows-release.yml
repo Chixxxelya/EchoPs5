@@ -117,18 +117,26 @@ jobs:
           }
           Write-Host "MSVC tools $env:VCToolsVersion (the profile's standard-library code: 14.51.36231)"
 
+      - name: Run benchmark analyzer tests
+        shell: pwsh
+        run: python -m unittest discover -s tools\benchmark\tests -v
+
       - name: Build and install
         shell: cmd
         run: |
           rem -Wprofile-instr-missing (diagnostics only) reports, per file, the functions the profile has no data for.
           rem clang-cl prepends CL to its arguments (_CL_ would land after CMake's "--" and count as a file).
           set CL=-Wprofile-instr-missing
-          cmake --build _Build/windows --target launcher kyty_emulator --parallel > pgo-build.log 2>&1
+          cmake --build _Build/windows --target launcher kyty_emulator dlss_tests launcher_configuration_tests launcher_edit_dialog_tests --parallel > pgo-build.log 2>&1
           set BUILD_EXIT=%ERRORLEVEL%
           set CL=
           type pgo-build.log
           if %BUILD_EXIT% neq 0 exit /b %BUILD_EXIT%
           cmake --install _Build/windows --prefix _Build/windows/install
+
+      - name: Test DLSS and launcher configuration
+        shell: pwsh
+        run: ctest --test-dir _Build/windows -C Release -R '^(dlss|launcher_configuration|launcher_edit_dialog)$' --output-on-failure
 
       - name: Show build errors
         if: failure()
