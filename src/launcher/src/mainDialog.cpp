@@ -611,6 +611,9 @@ static QStringList SetupEmulatorProcess(QProcess* process, const QString& interp
 	{
 		auto environment = process->processEnvironment();
 		info.ApplyFastGpuSync(environment);
+		// The per-game "performance profile": the same rule, the profile's switches go where nothing
+		// else has set them.
+		info.ApplyPerformanceProfile(environment);
 		process->setProcessEnvironment(environment);
 	}
 	// The per-game "smooth frametime fix" checkbox (Immediate mode only) turns the absolute

@@ -466,8 +466,7 @@ void ConfigurationEditDialog::Init(const Configuration& info) {
 		}
 		m_ui->comboBox_dlss_quality->setCurrentIndex(chosen);
 	}
-	m_ui->slider_dlss_sharpness->setValue(std::clamp(info.dlss_sharpness, 0, 100));
-	m_ui->label_dlss_sharpness_value->setText(tr("%1%").arg(m_ui->slider_dlss_sharpness->value()));
+	m_ui->slider_dlss_sharpness->setValue(std::clamp(info.dlss_sharpness, 0, 100));	m_ui->label_dlss_sharpness_value->setText(tr("%1%").arg(m_ui->slider_dlss_sharpness->value()));
 	{
 		m_ui->comboBox_dlss_preset->clear();
 		m_ui->comboBox_dlss_preset->addItem(tr("Model default"), 0);
@@ -476,6 +475,16 @@ void ConfigurationEditDialog::Init(const Configuration& info) {
 		}
 		m_ui->comboBox_dlss_preset->setCurrentIndex(
 		    info.dlss_preset >= 0 && info.dlss_preset <= 15 ? info.dlss_preset : 0);
+	}
+	{
+		// Performance profile: the combo's data is the value saved in the config.
+		m_ui->comboBox_performance_profile->clear();
+		m_ui->comboBox_performance_profile->addItem(tr("Shipped (released settings)"),
+		                                            QStringLiteral("shipped"));
+		m_ui->comboBox_performance_profile->addItem(tr("Fast (fewer barriers, skips, more workers)"),
+		                                            QStringLiteral("fast"));
+		const int chosen = m_ui->comboBox_performance_profile->findData(info.performance_profile);
+		m_ui->comboBox_performance_profile->setCurrentIndex(chosen >= 0 ? chosen : 0);
 	}
 	// Partly checked: automatic (on unless the CPU is an AMD).
 	m_ui->checkBox_amd_cpu->setTristate(true);
@@ -738,6 +747,8 @@ static void UpdateInfo(Configuration& info, Ui::ConfigurationEditDialog& ui, boo
 	info.dlss_quality  = quality.isEmpty() ? QStringLiteral("auto") : quality;
 	info.dlss_preset   = ui.comboBox_dlss_preset->currentData().toInt();
 	info.dlss_sharpness = ui.slider_dlss_sharpness->value();
+	const auto profile = ui.comboBox_performance_profile->currentData().toString();
+	info.performance_profile = profile.isEmpty() ? QStringLiteral("shipped") : profile;
 	const auto amd_cpu             = ui.checkBox_amd_cpu->checkState();
 	info.amd_cpu_mode              = amd_cpu == Qt::Checked     ? QStringLiteral("on")
 	                                 : amd_cpu == Qt::Unchecked ? QStringLiteral("off")

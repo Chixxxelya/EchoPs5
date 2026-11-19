@@ -216,6 +216,52 @@ int main() {
 		      "invalid DLSS quality accepted on import");
 	}
 
+	// The per-game performance profile: off by default, persisted, and only "fast" changes the
+	// environment (each switch where nothing else set it).
+	{
+		Configuration defaults;
+		Check(defaults.performance_profile == QStringLiteral("shipped"), "the profile defaults to shipped");
+		QProcessEnvironment environment;
+		environment.insert(QStringLiteral("KYTY_OTHER"), QStringLiteral("x"));
+		defaults.ApplyPerformanceProfile(environment);
+		Check(environment.keys().size() == 1, "shipped: the environment is unchanged");
+
+		Configuration fast;
+		fast.performance_profile = QStringLiteral("fast");
+		QSettings out(dir.filePath(QStringLiteral("profile.ini")), QSettings::IniFormat);
+		fast.WriteSettings(&out);
+		out.sync();
+		Configuration back;
+		back.ReadSettings(&out);
+		Check(back.performance_profile == QStringLiteral("fast"), "the profile did not survive the round trip");
+		Configuration copied;
+		copied.CopyEmulatorSettingsFrom(fast);
+		Check(copied.performance_profile == QStringLiteral("fast"), "CopyEmulatorSettingsFrom dropped the profile");
+
+		fast.ApplyPerformanceProfile(environment);
+		const auto& variables = Configuration::PerformanceProfileVariables();
+		Check(variables.size() == 10, "ten switches in the fast profile");
+		for (const auto& [key, value]: variables) {
+			Check(environment.value(key) == value, "fast: every switch is set");
+		}
+		// A preset or the user wins over the profile.
+		QProcessEnvironment preset;
+		preset.insert(QStringLiteral("KYTY_GPU_HAZARD"), QStringLiteral("0"));
+		fast.ApplyPerformanceProfile(preset);
+		Check(preset.value(QStringLiteral("KYTY_GPU_HAZARD")) == QStringLiteral("0"), "a preset's value wins");
+		Check(preset.value(QStringLiteral("KYTY_DRAW_PREP_WINDOW")) == QStringLiteral("64"),
+		      "the switches the preset leaves alone are added");
+
+		out.setValue(QStringLiteral("performance_profile"), QStringLiteral("turbo"));
+		Configuration broken;
+		broken.ReadSettings(&out);
+		Check(broken.performance_profile == QStringLiteral("shipped"), "an unknown profile becomes shipped");
+		Configuration bad_import;
+		Check(!bad_import.SetGameSettings(
+		          QJsonObject {{QStringLiteral("performance_profile"), QStringLiteral("turbo")}}, error),
+		      "invalid profile accepted on import");
+	}
+
 	Check(Configuration::ShaderOptimizationTypeFromText(QStringLiteral("None")) ==
 	          Configuration::ShaderOptimizationType::None,
 	      "None not parsed");

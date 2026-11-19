@@ -194,6 +194,10 @@ public:
 	// "Faster GPU synchronisation (experimental)", per game (key fast_gpu_sync): the game starts
 	// with FastGpuSyncVariables() (ApplyFastGpuSync).
 	bool                   fast_gpu_sync               = false;
+	// "Performance profile", per game (key performance_profile): "shipped" or "fast"
+	// (ApplyPerformanceProfile). Kept as text like amd_cpu_mode, so an old or hand-edited config
+	// cannot load an invalid enum.
+	QString                performance_profile          = QStringLiteral("shipped");
 	bool                   shader_cache_enabled        = true;
 	bool                   trophy_enabled              = true;
 	int                    trophy_duration_seconds     = 6;
@@ -278,6 +282,7 @@ public:
 		dlss_quality                = other.dlss_quality;
 		dlss_preset                 = other.dlss_preset;
 		dlss_sharpness              = other.dlss_sharpness;
+		performance_profile         = other.performance_profile;
 		amd_cpu_mode                = other.amd_cpu_mode;
 		guest_tsc_enabled           = other.guest_tsc_enabled;
 #if defined(_WIN32)
@@ -311,6 +316,12 @@ public:
 	// a value from u59-preset.json, a title preset or the user's environment wins. Without it,
 	// nothing changes.
 	void ApplyFastGpuSync(QProcessEnvironment& environment) const;
+
+	// "shipped" keeps the released behaviour; "fast" adds PerformanceProfileVariables() on top of
+	// everything the presets set. Both live per game (key performance_profile) and are live switches
+	// of the emulator, so a wrong picture is fixed by turning the profile off, not by a rebuild.
+	[[nodiscard]] static const QList<QPair<QString, QString>>& PerformanceProfileVariables();
+	void ApplyPerformanceProfile(QProcessEnvironment& environment) const;
 	// Call on a temporary configuration: validation can fail after loading values.
 	bool SetGameSettings(const QJsonObject& settings, QString& error);
 

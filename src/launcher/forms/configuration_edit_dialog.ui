@@ -485,6 +485,20 @@
              </widget>
             </item>
             <item>
+             <layout class="QFormLayout" name="performanceLayout">
+              <item row="0" column="0">
+               <widget class="QLabel" name="label_performance_profile">
+                <property name="text"><string>Performance profile:</string></property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QComboBox" name="comboBox_performance_profile">
+                <property name="toolTip"><string>Shipped keeps the released behaviour. Fast adds the aggressive switches on top of it: fewer GPU barriers, draws skipped while their pipeline builds, occlusion results of those draws biased, longer draw-run chains, and more draw-preparation workers. It is faster and it can look wrong on some games; switch it back to Shipped if the picture or the pacing gets worse.</string></property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
              <widget class="QCheckBox" name="checkBox_hide_cursor">
               <property name="toolTip"><string>Hide the host cursor after 2 seconds without mouse activity</string></property>
               <property name="text"><string>Auto-hide cursor</string></property>

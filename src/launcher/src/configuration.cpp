@@ -65,6 +65,7 @@ QVariantMap Configuration::GameSettings() const {
 	KYTY_CFG_SET(relaxed_shader_float);
 	KYTY_CFG_SET(fast_gpu_sync);
 	KYTY_CFG_SET(shader_cache_enabled);
+	KYTY_CFG_SET(performance_profile);
 	KYTY_CFG_SET(trophy_enabled);
 	KYTY_CFG_SET(trophy_duration_seconds);
 	KYTY_CFG_SET(perf_overlay_enabled);
@@ -120,6 +121,41 @@ void Configuration::ApplyFastGpuSync(QProcessEnvironment& environment) const {
 	}
 }
 
+const QList<QPair<QString, QString>>& Configuration::PerformanceProfileVariables() {
+	// The switches the "fast" profile of tools/presets adds to the bundled preset: only what is not
+	// already a global preset value, and only what the emulator reads as a live switch, so a game
+	// that looks wrong recovers when the profile goes back to "shipped".
+	static const QList<QPair<QString, QString>> variables {
+	    // The same four as "faster GPU synchronisation": fewer barriers.
+	    {QStringLiteral("KYTY_GPU_HAZARD"), QStringLiteral("3")},
+	    {QStringLiteral("KYTY_INDIRECT_ARGS_RANGES"), QStringLiteral("1")},
+	    {QStringLiteral("KYTY_GUEST_BARRIER_SCOPE"), QStringLiteral("rel=drop")},
+	    {QStringLiteral("KYTY_DMA_BARRIER_BATCH"), QStringLiteral("1")},
+	    // Occlusion results of skipped draws are biased instead of waited for.
+	    {QStringLiteral("KYTY_SKIP_OCCLUSION_VISIBLE"), QStringLiteral("1")},
+	    // A draw whose only "write" is the fault buffer may be skipped while its pipeline builds...
+	    {QStringLiteral("KYTY_PIPELINE_SKIP_FAULT_BUFFER"), QStringLiteral("1")},
+	    // ...and may continue the previous draw's run.
+	    {QStringLiteral("KYTY_DRAW_RUN_FAULT_BUFFER"), QStringLiteral("1")},
+	    // Prepare further ahead, with more workers spinning and stealing.
+	    {QStringLiteral("KYTY_DRAW_PREP_WINDOW"), QStringLiteral("64")},
+	    {QStringLiteral("KYTY_DRAW_PREP_HOT"), QStringLiteral("4")},
+	    {QStringLiteral("KYTY_DRAW_PREP_STEAL"), QStringLiteral("1")},
+	};
+	return variables;
+}
+
+void Configuration::ApplyPerformanceProfile(QProcessEnvironment& environment) const {
+	if (performance_profile != QStringLiteral("fast")) {
+		return;
+	}
+	for (const auto& [name, value]: PerformanceProfileVariables()) {
+		if (!environment.contains(name)) {
+			environment.insert(name, value);
+		}
+	}
+}
+
 template <class Settings>
 void Configuration::ReadGameSettingsValues(const Settings& s) {
 #define KYTY_CFG_GET(n) n = s.value(QStringLiteral(#n)).template value<decltype(n)>()
@@ -153,6 +189,10 @@ void Configuration::ReadGameSettingsValues(const Settings& s) {
 	gpu_occlusion_accurate = s.value("gpu_occlusion_accurate", gpu_occlusion_accurate).toBool();
 	KYTY_CFG_GET(relaxed_shader_float);
 	fast_gpu_sync        = s.value("fast_gpu_sync", false).toBool();
+	performance_profile  = s.value("performance_profile", performance_profile).toString();
+	if (performance_profile != QStringLiteral("fast")) {
+		performance_profile = QStringLiteral("shipped");
+	}
 	shader_cache_enabled = s.value("shader_cache_enabled", shader_cache_enabled).toBool();
 	trophy_enabled       = s.value("trophy_enabled", trophy_enabled).toBool();
 	KYTY_CFG_GET(trophy_duration_seconds);
