@@ -174,6 +174,9 @@ has that trades correctness for frame time:
 | `KYTY_DRAW_PREP_STEAL=1` | a worker prepares another slot while its own is still busy: more parallel work, more contention |
 | `KYTY_BK_HANDOVER=1`, `KYTY_BK_ADOPT=1`, `KYTY_BK_RECORD=1`, `KYTY_BK_LEAN=1` | the commit thread's per-draw bookkeeping reduced to runs (drawPrep/bookkeep.h, BookkeepTests): fewer atomic checks, pointer adoption of stage preparations, a smaller record update |
 | `KYTY_TEXEL_RELAXED_SYNC=2` | texel read bindings take the lock-free check and the read memo; bufferCache.cpp documents 15.5 us -> 0.6 us per binding on Miles Morales, 0 mismatches in its verify modes |
+| `KYTY_DRAW_PREP_LEAN=all` | cheaper preparations with unchanged outputs (drawPrep/lean.h): code digest once per shader, merged read sets, two claims per update; the digest part was ~5% of worker time at the Sky Garden |
+| `KYTY_PIPELINE_SKIP_ORDER=1` | translation workers take the newest job first, so the pipeline the command processor waits for is built before the backlog |
+| `KYTY_MUTEX_HANDOFF_US=2000` | guest mutex starvation guard (Ratchet & Clank and GT7 presets use it): a thread that unlocks and re-locks in a loop cannot starve the others for seconds. Not an FPS switch, a stall switch |
 
 The three draw-prep switches are the multithreading knobs: what the commit thread cannot do in order is
 prepared ahead by workers. They help only when the commit thread waits for preparation — `CpGaps`

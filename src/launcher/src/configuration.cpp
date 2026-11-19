@@ -152,6 +152,15 @@ const QList<QPair<QString, QString>>& Configuration::PerformanceProfileVariables
 	    // Formatted (texel) read bindings take the lock-free "nothing to upload" test and the read
 	    // memo (bufferCache.cpp documents 15.5 us -> 0.6 us per binding on Miles Morales).
 	    {QStringLiteral("KYTY_TEXEL_RELAXED_SYNC"), QStringLiteral("2")},
+	    // Cheaper draw preparations with unchanged outputs (drawPrep/lean.h): the shader code digest
+	    // once per code instead of per prepared stage, merged read sets, two claims per update.
+	    {QStringLiteral("KYTY_DRAW_PREP_LEAN"), QStringLiteral("all")},
+	    // The translation workers take the newest job first, so the pipeline the command processor
+	    // waits for is built before the backlog.
+	    {QStringLiteral("KYTY_PIPELINE_SKIP_ORDER"), QStringLiteral("1")},
+	    // Guest mutex starvation guard: a thread that unlocks and re-locks in a loop (Wwise's audio
+	    // thread when audio runs behind) cannot starve the others for seconds.
+	    {QStringLiteral("KYTY_MUTEX_HANDOFF_US"), QStringLiteral("2000")},
 	};
 	return variables;
 }
