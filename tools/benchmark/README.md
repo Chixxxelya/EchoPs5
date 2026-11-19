@@ -28,9 +28,27 @@ anchor. Timing is in milliseconds, so a different frame rate does not shift the 
 
 ## 2. Capture a run
 
-Use the same game version, scene, settings and shader/cache state for every compared run. Close OBS
-and other graphics hooks. Precompile once, then use a warm cache for steady-state measurements; cold
-shader/pipeline compilation is a separate test.
+The helper arms and finishes a run for you: it backs up the title preset, adds the logging keys,
+and restores the preset when you finish.
+
+```powershell
+# arm: writes _Benchmark\<tag>.frames.csv / .pace.csv, backs up u59-preset.PPSA26344.json
+.\tools\benchmark\echops_bench_run.ps1 -Action Start -EmulatorDir 'D:\workPs' -Tag baseline
+
+# start Ghost of Yotei from the launcher, play the recorded route, exit the game
+
+# restore the preset, analyze, write <tag>.json and print the summary
+.\tools\benchmark\echops_bench_run.ps1 -Action Finish -EmulatorDir 'D:\workPs' -Tag baseline
+```
+
+`-Replay <pad file>` also arms the recorded route, `-StallTrace` adds the compile-span rows, and
+`-Python <path>` picks the interpreter when it is not on `PATH`. The helper refuses to start twice
+and refuses to finish without a backup, so an interrupted run cannot leave the preset modified: if
+something goes wrong, restore `u59-preset.PPSA26344.json.bench-backup` by hand.
+
+By hand, the same thing means: use the same game version, scene, settings and shader/cache state for
+every compared run. Close OBS and other graphics hooks. Precompile once, then use a warm cache for
+steady-state measurements; cold shader/pipeline compilation is a separate test.
 
 Add these entries temporarily to the title preset, changing the `baseline` prefix per run:
 
