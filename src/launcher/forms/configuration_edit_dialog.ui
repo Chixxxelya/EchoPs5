@@ -431,6 +431,51 @@
                 <property name="clearButtonEnabled"><bool>true</bool></property>
                </widget>
               </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="label_dlss_quality">
+                <property name="text"><string>DLSS quality:</string></property>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QComboBox" name="comboBox_dlss_quality">
+                <property name="toolTip"><string>Auto follows the render size the game asks for. Quality, Balanced, Performance and Ultra Performance render a smaller, cheaper image; DLAA renders at full size.</string></property>
+               </widget>
+              </item>
+              <item row="3" column="0">
+               <widget class="QLabel" name="label_dlss_sharpness">
+                <property name="text"><string>DLSS sharpness:</string></property>
+               </widget>
+              </item>
+              <item row="3" column="1">
+               <layout class="QHBoxLayout" name="dlssSharpnessLayout">
+                <item>
+                 <widget class="QSlider" name="slider_dlss_sharpness">
+                  <property name="toolTip"><string>Sharpening applied by the DLSS model, 0 to 100%. 0 leaves the sharpening to the model.</string></property>
+                  <property name="minimum"><number>0</number></property>
+                  <property name="maximum"><number>100</number></property>
+                  <property name="singleStep"><number>5</number></property>
+                  <property name="pageStep"><number>10</number></property>
+                  <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="label_dlss_sharpness_value">
+                  <property name="minimumSize"><size><width>40</width><height>0</height></size></property>
+                  <property name="text"><string>0%</string></property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item row="4" column="0">
+               <widget class="QLabel" name="label_dlss_preset">
+                <property name="text"><string>DLSS preset:</string></property>
+               </widget>
+              </item>
+              <item row="4" column="1">
+               <widget class="QComboBox" name="comboBox_dlss_preset">
+                <property name="toolTip"><string>The model's internal preset (A to O). Model default uses whatever the DLL ships with; only models that know presets apply it, the others ignore the setting.</string></property>
+               </widget>
+              </item>
              </layout>
             </item>
             <item>

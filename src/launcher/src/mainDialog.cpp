@@ -427,6 +427,16 @@ static QStringList CreateEmulatorArgs(const Configuration& info) {
 	AddFlag(args, info.pro_enabled, "--trinity");
 	if (info.pro_enabled && info.pssr_upscaler == Configuration::PssrUpscaler::DLSS) {
 		args << "--dlss" << info.dlss_folder;
+		if (info.dlss_quality != QStringLiteral("auto")) {
+			args << "--dlss-quality" << info.dlss_quality;
+		}
+		if (info.dlss_preset > 0 && info.dlss_preset <= 15) {
+			args << "--dlss-preset" << QString(QChar('A' + info.dlss_preset - 1));
+		}
+		if (info.dlss_sharpness > 0) {
+			args << "--dlss-sharpness"
+			     << QString::number(static_cast<double>(info.dlss_sharpness) / 100.0, 'f', 2);
+		}
 	}
 	// Neither flag: the emulator decides from the CPU vendor.
 	if (info.amd_cpu_mode == QStringLiteral("on")) {

@@ -4,6 +4,8 @@
 #include <QJsonDocument>
 #include <QRegularExpression>
 
+#include <algorithm>
+
 QString Configuration::NormalizeResolution(const QString& text) {
 	// Older settings stored the enum key, e.g. "R1920X1080".
 	static const QRegularExpression re(QStringLiteral("^\\s*R?(\\d+)\\s*[xX]\\s*(\\d+)\\s*$"));
@@ -18,6 +20,15 @@ QString Configuration::NormalizeResolution(const QString& text) {
 		return {};
 	}
 	return QStringLiteral("%1x%2").arg(width).arg(height);
+}
+
+const QStringList& Configuration::DlssQualityNames() {
+	static const QStringList names {
+	    QStringLiteral("auto"),          QStringLiteral("perf"),          QStringLiteral("balanced"),
+	    QStringLiteral("quality"),       QStringLiteral("ultra-perf"),    QStringLiteral("dlaa"),
+	    QStringLiteral("ultra-quality"),
+	};
+	return names;
 }
 
 Configuration::ShaderOptimizationType
@@ -75,6 +86,9 @@ QVariantMap Configuration::GameSettings() const {
 	KYTY_CFG_SET(pro_enabled);
 	KYTY_CFG_SET(pssr_upscaler);
 	KYTY_CFG_SET(dlss_folder);
+	KYTY_CFG_SET(dlss_quality);
+	KYTY_CFG_SET(dlss_preset);
+	KYTY_CFG_SET(dlss_sharpness);
 	KYTY_CFG_SET(amd_cpu_mode);
 	KYTY_CFG_SET(guest_tsc_enabled);
 #if defined(_WIN32)
@@ -166,6 +180,17 @@ void Configuration::ReadGameSettingsValues(const Settings& s) {
 	KYTY_CFG_GET(guest_tsc_enabled);
 	KYTY_CFG_GET(pssr_upscaler);
 	KYTY_CFG_GET(dlss_folder);
+	// A config saved before these existed, or a hand-edited one, keeps the defaults.
+	dlss_quality = s.value("dlss_quality", dlss_quality).toString();
+	if (!DlssQualityNames().contains(dlss_quality)) {
+		dlss_quality = QStringLiteral("auto");
+	}
+	dlss_preset = s.value("dlss_preset", dlss_preset).toInt();
+	if (dlss_preset < 0 || dlss_preset > 15) {
+		dlss_preset = 0;
+	}
+	dlss_sharpness = s.value("dlss_sharpness", dlss_sharpness).toInt();
+	dlss_sharpness = std::clamp(dlss_sharpness, 0, 100);
 	pro_enabled = s.value("pro_enabled", false).toBool();
 	// "auto" (on unless the CPU is an AMD), "on" or "off". Before "auto", only amd_cpu_enabled was
 	// saved, and false for everyone who never touched it: true stays on, false becomes auto.

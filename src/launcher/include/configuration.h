@@ -135,6 +135,10 @@ public:
 	enum class PssrUpscaler { Linear, DLSS };
 	Q_ENUM(PssrUpscaler)
 
+	// The --dlss-quality names, "auto" first: the dialog shows a label per name, the emulator takes
+	// the name itself.
+	static const QStringList& DlssQualityNames();
+
 	enum class GameStatus { Unknown, InGame, Logo, DoesntBoot, MainMenu };
 	Q_ENUM(GameStatus)
 
@@ -213,6 +217,10 @@ public:
 	bool                   pro_enabled                 = false;
 	PssrUpscaler           pssr_upscaler               = PssrUpscaler::Linear;
 	QString                dlss_folder;
+	// DLSS quality mode as its --dlss-quality name; "auto" lets the model pick from the render size.
+	QString                dlss_quality                = QStringLiteral("auto");
+	int                    dlss_preset                 = 0; // 0 model default, 1..15 is A..O
+	int                    dlss_sharpness              = 0; // percent, 0..100; 0 leaves it to the model
 	QString                amd_cpu_mode                = QStringLiteral("auto"); // or "on", "off"
 	bool                   guest_tsc_enabled           = false;
 #if defined(_WIN32)
@@ -267,6 +275,9 @@ public:
 		pro_enabled                 = other.pro_enabled;
 		pssr_upscaler               = other.pssr_upscaler;
 		dlss_folder                 = other.dlss_folder;
+		dlss_quality                = other.dlss_quality;
+		dlss_preset                 = other.dlss_preset;
+		dlss_sharpness              = other.dlss_sharpness;
 		amd_cpu_mode                = other.amd_cpu_mode;
 		guest_tsc_enabled           = other.guest_tsc_enabled;
 #if defined(_WIN32)

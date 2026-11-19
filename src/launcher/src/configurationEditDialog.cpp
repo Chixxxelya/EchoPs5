@@ -37,6 +37,9 @@
 #include <QVBoxLayout>
 #include <QtAlgorithms>
 
+#include <algorithm>
+#include <iterator>
+
 #if QT_CONFIG(vulkan)
 #include <QVulkanInstance>
 #include <QVulkanWindow>
@@ -260,16 +263,24 @@ ConfigurationEditDialog::ConfigurationEditDialog(Configuration& info, QWidget* p
 		        m_ui->lineEdit_shader_log_folder->setEnabled(
 		            log == Configuration::LogDirection::File);
 	        });
-	// The upscaler applies in Pro mode only, and the folder to DLSS only.
+	// The upscaler applies in Pro mode only; the folder, quality, sharpness and preset to DLSS.
+	// Rows 2..4 are the DLSS quality, sharpness and preset this build adds to the PSSR form.
 	const auto show_pssr = [this] {
 		const bool pro = m_ui->checkBox_pro->isChecked();
 		const auto upscaler =
 		    TextToEnum<Configuration::PssrUpscaler>(m_ui->comboBox_pssr_upscaler->currentText());
+		const bool dlss = pro && upscaler == Configuration::PssrUpscaler::DLSS;
 		m_ui->pssrLayout->setRowVisible(0, pro);
-		m_ui->pssrLayout->setRowVisible(1, pro && upscaler == Configuration::PssrUpscaler::DLSS);
+		m_ui->pssrLayout->setRowVisible(1, dlss);
+		m_ui->pssrLayout->setRowVisible(2, dlss);
+		m_ui->pssrLayout->setRowVisible(3, dlss);
+		m_ui->pssrLayout->setRowVisible(4, dlss);
 	};
 	connect(m_ui->checkBox_pro, &QCheckBox::toggled, this, show_pssr);
 	connect(m_ui->comboBox_pssr_upscaler, &QComboBox::currentTextChanged, this, show_pssr);
+	connect(m_ui->slider_dlss_sharpness, &QSlider::valueChanged, this, [this](int value) {
+		m_ui->label_dlss_sharpness_value->setText(tr("%1%").arg(value));
+	});
 	connect(m_ui->checkBox_cmd_dump, &QCheckBox::toggled, this,
 	        [this](bool flag) { m_ui->lineEdit_cmd_dump_folder->setEnabled(flag); });
 	connect(m_ui->comboBox_printf_direction, &QComboBox::currentTextChanged, this,
@@ -436,6 +447,36 @@ void ConfigurationEditDialog::Init(const Configuration& info) {
 	m_ui->checkBox_pro->setChecked(info.pro_enabled);
 	ListInit(m_ui->comboBox_pssr_upscaler, info.pssr_upscaler);
 	m_ui->lineEdit_dlss_folder->setText(info.dlss_folder);
+	// DLSS settings: the quality combo's data is the emulator's --dlss-quality name.
+	{
+		static const char* quality_labels[] = {
+		    QT_TR_NOOP("Auto (the render size decides)"), QT_TR_NOOP("Performance"),
+		    QT_TR_NOOP("Balanced"),                        QT_TR_NOOP("Quality"),
+		    QT_TR_NOOP("Ultra Performance"),               QT_TR_NOOP("DLAA (full size)"),
+		    QT_TR_NOOP("Ultra Quality"),
+		};
+		const auto& names = Configuration::DlssQualityNames();
+		m_ui->comboBox_dlss_quality->clear();
+		int chosen = 0;
+		for (int i = 0; i < names.size() && i < static_cast<int>(std::size(quality_labels)); ++i) {
+			m_ui->comboBox_dlss_quality->addItem(tr(quality_labels[i]), names.at(i));
+			if (names.at(i) == info.dlss_quality) {
+				chosen = i;
+			}
+		}
+		m_ui->comboBox_dlss_quality->setCurrentIndex(chosen);
+	}
+	m_ui->slider_dlss_sharpness->setValue(std::clamp(info.dlss_sharpness, 0, 100));
+	m_ui->label_dlss_sharpness_value->setText(tr("%1%").arg(m_ui->slider_dlss_sharpness->value()));
+	{
+		m_ui->comboBox_dlss_preset->clear();
+		m_ui->comboBox_dlss_preset->addItem(tr("Model default"), 0);
+		for (int preset = 1; preset <= 15; ++preset) {
+			m_ui->comboBox_dlss_preset->addItem(QString(QChar('A' + preset - 1)), preset);
+		}
+		m_ui->comboBox_dlss_preset->setCurrentIndex(
+		    info.dlss_preset >= 0 && info.dlss_preset <= 15 ? info.dlss_preset : 0);
+	}
 	// Partly checked: automatic (on unless the CPU is an AMD).
 	m_ui->checkBox_amd_cpu->setTristate(true);
 	m_ui->checkBox_amd_cpu->setCheckState(info.amd_cpu_mode == QStringLiteral("on")    ? Qt::Checked
@@ -467,6 +508,9 @@ void ConfigurationEditDialog::Init(const Configuration& info) {
 	m_ui->lineEdit_printf_file->setEnabled(info.printf_direction ==
 	                                       Configuration::LogDirection::File);
 	m_ui->checkBox_profiler->setChecked(info.profiler_enabled);
+	// The PSSR/DLSS rows follow the checkbox and the upscaler combo, which were filled above; the
+	// constructor's connections only fire when a value changes.
+	emit m_ui->checkBox_pro->toggled(m_ui->checkBox_pro->isChecked());
 }
 
 void ConfigurationEditDialog::InitGameDirectories() {
@@ -689,6 +733,11 @@ static void UpdateInfo(Configuration& info, Ui::ConfigurationEditDialog& ui, boo
 	info.pssr_upscaler =
 	    TextToEnum<Configuration::PssrUpscaler>(ui.comboBox_pssr_upscaler->currentText());
 	info.dlss_folder               = ui.lineEdit_dlss_folder->text();
+	// An empty combo (a build without the DLSS rows) keeps the defaults.
+	const auto quality = ui.comboBox_dlss_quality->currentData().toString();
+	info.dlss_quality  = quality.isEmpty() ? QStringLiteral("auto") : quality;
+	info.dlss_preset   = ui.comboBox_dlss_preset->currentData().toInt();
+	info.dlss_sharpness = ui.slider_dlss_sharpness->value();
 	const auto amd_cpu             = ui.checkBox_amd_cpu->checkState();
 	info.amd_cpu_mode              = amd_cpu == Qt::Checked     ? QStringLiteral("on")
 	                                 : amd_cpu == Qt::Unchecked ? QStringLiteral("off")
