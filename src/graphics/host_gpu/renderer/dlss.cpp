@@ -9,6 +9,7 @@
 #include <SDL3/SDL_loadso.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <span>
 #include <string>
 #include <string_view>
@@ -27,7 +28,10 @@ constexpr int         ENGINE_CUSTOM  = 0;
 constexpr int         SUPER_SAMPLING = 1;
 constexpr const char* PROJECT_ID     = "a10e2777-9818-4681-b625-25d71ae45d72";
 
-constexpr int DLAA = 5; // the last quality mode; it renders at the output size
+// NGX numbers the quality modes: 0 performance, 1 balanced, 2 quality, 3 ultra performance, 4 DLAA
+// (it renders at the output size) and 5 ultra quality.
+constexpr int DLAA         = 4;
+constexpr int LAST_QUALITY = 5;
 
 // Feature creation flags.
 constexpr int IS_HDR         = 1 << 0;
@@ -122,11 +126,14 @@ bool Takes(const Creation& creation, const Pssr::Request& request, const Inputs&
 }
 
 std::optional<Creation> Choose(Parameter& capabilities, const Pssr::Request& request,
-                               const Inputs& inputs) {
+                               const Inputs& inputs, int quality) {
 	void* callback = nullptr;
 	if (!Succeeded(capabilities.Get("DLSSOptimalSettingsCallback", &callback)) ||
 	    callback == nullptr) {
 		return std::nullopt;
+	}
+	if (quality < 0 || quality > LAST_QUALITY) {
+		quality = kQualityAuto;
 	}
 	const auto settings = reinterpret_cast<Result (*)(Parameter*)>(callback);
 	const auto read     = [&](const char* name, uint32_t& value) {
@@ -138,7 +145,10 @@ std::optional<Creation> Choose(Parameter& capabilities, const Pssr::Request& req
 	std::optional<Creation> best;
 	uint32_t                best_distance = 0;
 	const uint32_t          flags         = request.flags & FIXED_FLAGS;
-	for (int mode = 0; mode <= DLAA; ++mode) {
+	for (int mode = 0; mode <= LAST_QUALITY; ++mode) {
+		if (quality != kQualityAuto && mode != quality) {
+			continue;
+		}
 		capabilities.Set("Width", inputs.output.width);
 		capabilities.Set("Height", inputs.output.height);
 		capabilities.Set("PerfQualityValue", mode);
@@ -173,6 +183,14 @@ std::optional<Creation> Choose(Parameter& capabilities, const Pssr::Request& req
 			best_distance = distance;
 		}
 	}
+	if (!best && quality != kQualityAuto) {
+		// The pinned mode does not render at this size: say so once, the request scales linearly.
+		static std::atomic<uint32_t> logged {0};
+		if (logged.fetch_add(1, std::memory_order_relaxed) < 4u) {
+			Warn(fmt::format("quality mode {} cannot take {}x{}", quality, request.width,
+			                 request.height));
+		}
+	}
 	return best;
 }
 
@@ -192,6 +210,8 @@ void SetCreation(Parameter& parameters, const Creation& creation, uint32_t prese
 	parameters.Set("OutHeight", creation.output_height);
 	parameters.Set("PerfQualityValue", creation.mode);
 	parameters.Set("DLSS.Feature.Create.Flags", flags);
+	// The model sharpens its own output; 0 leaves that to the model.
+	parameters.Set("Sharpness", Config::GetDlssSharpness());
 	for (const char* hint:
 	     {"DLSS.Hint.Render.Preset.DLAA", "DLSS.Hint.Render.Preset.Quality",
 	      "DLSS.Hint.Render.Preset.Balanced", "DLSS.Hint.Render.Preset.Performance",
@@ -213,6 +233,7 @@ void SetEvaluation(Parameter& parameters, const Pssr::Request& request, Inputs& 
 	parameters.Set("MV.Scale.Y", request.motion_scale[1]);
 	parameters.Set("DLSS.Pre.Exposure", request.pre_exposure);
 	parameters.Set("Reset", reset ? 1 : 0);
+	parameters.Set("Sharpness", Config::GetDlssSharpness());
 	parameters.Set("DLSS.Render.Subrect.Dimensions.Width", request.width);
 	parameters.Set("DLSS.Render.Subrect.Dimensions.Height", request.height);
 	parameters.Set("DLSS.Input.Color.Subrect.Base.X", request.x);

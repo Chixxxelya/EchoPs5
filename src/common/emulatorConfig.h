@@ -84,6 +84,11 @@ struct ConfigOptions {
 	// Folder with the user's DLSS model; DLSS upscales PSSR in Pro mode when set.
 	std::filesystem::path  dlss_folder;
 	uint32_t               dlss_preset                 = 0; // 0 is the model default
+	// The quality mode the user picked, in NGX's numbering (0 performance, 1 balanced, 2 quality,
+	// 3 ultra performance, 4 DLAA, 5 ultra quality); past the last mode the model picks one from
+	// the render size, which is the default.
+	uint32_t               dlss_quality                = 0xFF;
+	float                  dlss_sharpness              = 0.0f; // 0..1; 0 keeps the model's own
 	bool                   amd_cpu_enabled             = false;
 	std::string            amd_cpu_decision; // why amd_cpu_enabled is set as it is, for the log
 	bool                   guest_tsc_enabled           = false;
@@ -162,6 +167,8 @@ bool     VrEnabled();
 bool     Ps5ProEnabled();
 const std::filesystem::path& GetDlssFolder();
 uint32_t GetDlssPreset();
+uint32_t GetDlssQuality();
+float    GetDlssSharpness();
 bool     AmdCpuEnabled();
 const std::string& GetAmdCpuDecision();
 bool     GuestTscEnabled();

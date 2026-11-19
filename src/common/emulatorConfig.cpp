@@ -155,6 +155,14 @@ uint32_t GetDlssPreset() {
 	return g_config->dlss_preset;
 }
 
+uint32_t GetDlssQuality() {
+	return g_config->dlss_quality;
+}
+
+float GetDlssSharpness() {
+	return g_config->dlss_sharpness;
+}
+
 bool AmdCpuEnabled() {
 	return g_config->amd_cpu_enabled;
 }

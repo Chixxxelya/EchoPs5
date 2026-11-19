@@ -1,4 +1,5 @@
 #include "common/assert.h"
+#include "common/emulatorConfig.h"
 #include "common/logging/log.h"
 #include "gpu_blit_shaders/gpu_pssr_linear_spv.h"
 #include "graphics/guest_gpu/pssr.h"
@@ -138,7 +139,8 @@ struct RenderExecutor::PssrState {
 		bool reset   = (request.flags & Pssr::kReset) != 0;
 		if (context == dlss_contexts.end() || !Dlss::Takes(context->creation, request, inputs)) {
 			// A render size no quality mode takes scales linearly.
-			const auto creation = Dlss::Choose(*Dlss::Capabilities(), request, inputs);
+			const auto creation = Dlss::Choose(*Dlss::Capabilities(), request, inputs,
+			                                   static_cast<int>(Config::GetDlssQuality()));
 			if (!creation) {
 				return false;
 			}

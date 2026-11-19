@@ -147,6 +147,10 @@ static void PrintUsage() {
 	::printf("  --dlss <folder>                      With --trinity, upscale PSSR with the DLSS\n"
 	         "                                       model in <folder> instead of linearly.\n");
 	::printf("  --dlss-preset <A-O>                  DLSS preset. Default: the model's own.\n");
+	::printf("  --dlss-quality <name>                DLSS quality mode: perf, balanced, quality,\n"
+	         "                                       ultra-perf, dlaa or ultra-quality. Default: auto,\n"
+	         "                                       the mode whose render size holds the request.\n");
+	::printf("  --dlss-sharpness <0..1>              DLSS sharpness. Default: 0, the model's own.\n");
 	::printf("  --wheel <true|false>                 Show the game a racing wheel fed by host\n"
 	         "                                       devices (see --wheel-config).\n");
 	::printf("  --wheel-config <json>                Wheel mapping file. Default: wheel.json in\n"
@@ -264,6 +268,25 @@ static bool ParseUint32(const std::string& value, uint32_t& out) {
 	out = number;
 	return true;
 }
+
+static bool ParseFloat(const std::string& value, float& out) {
+	if (value.empty()) {
+		return false;
+	}
+	char*       end    = nullptr;
+	const float number = std::strtof(value.c_str(), &end);
+	if (end != value.c_str() + value.size()) {
+		return false;
+	}
+	out = number;
+	return true;
+}
+
+// A name of --dlss-quality and the quality mode NGX numbers it as.
+struct DeviceQualityMode {
+	std::string_view name;
+	uint32_t         value;
+};
 
 static bool ParseControllerColor(const std::string& value, Config::ControllerColor& out) {
 	if (value.size() != 7 || value[0] != '#') {
@@ -604,6 +627,40 @@ static bool ParseArgs(int argc, char* argv[], RunOptions& options, bool& show_he
 				return false;
 			}
 			options.config.dlss_preset = static_cast<uint32_t>(value[0] - 'A' + 1);
+		} else if (arg == "--dlss-quality") {
+			// NGX numbers the modes; 0xFF leaves the choice to the model.
+			static const DeviceQualityMode quality_modes[] {
+			    {"perf", 0},
+			    {"performance", 0},
+			    {"balanced", 1},
+			    {"quality", 2},
+			    {"ultra-perf", 3},
+			    {"ultra-performance", 3},
+			    {"dlaa", 4},
+			    {"ultra-quality", 5},
+			    {"auto", 0xFF},
+			};
+			bool known = false;
+			for (const auto& mode: quality_modes) {
+				if (mode.name == value) {
+					options.config.dlss_quality = mode.value;
+					known                       = true;
+					break;
+				}
+			}
+			if (!known) {
+				::printf("invalid DLSS quality (perf, balanced, quality, ultra-perf, dlaa, "
+				         "ultra-quality, auto): %s\n",
+				         value.c_str());
+				return false;
+			}
+		} else if (arg == "--dlss-sharpness") {
+			float sharpness = 0.0f;
+			if (!ParseFloat(value, sharpness) || sharpness < 0.0f || sharpness > 1.0f) {
+				::printf("invalid DLSS sharpness (0..1): %s\n", value.c_str());
+				return false;
+			}
+			options.config.dlss_sharpness = sharpness;
 		} else if (arg == "--gpu") {
 			if (!ParseInt32(value, options.config.gpu_index)) {
 				::printf("invalid gpu index: %s\n", value.c_str());

@@ -80,14 +80,19 @@ struct Creation {
 	bool operator==(const Creation&) const = default;
 };
 
+// The quality mode the caller wants: NGX's numbering, or kQualityAuto to take the mode whose
+// render range holds the request's render size.
+inline constexpr int kQualityAuto = -1;
+
 [[nodiscard]] bool Accepts(const Pssr::Request& request);
 // Whether a feature made for creation takes the request's output, flags and render size.
 [[nodiscard]] bool Takes(const Creation& creation, const Pssr::Request& request,
                          const Inputs& inputs);
 // The quality mode whose render range holds the request's render size, with the optimal size
-// nearest to it; nullopt when no mode takes the size.
+// nearest to it; nullopt when no mode takes the size. quality pins the mode when it is not
+// kQualityAuto, and nullopt comes back when that mode cannot take the size.
 [[nodiscard]] std::optional<Creation> Choose(Parameter& capabilities, const Pssr::Request& request,
-                                             const Inputs& inputs);
+                                             const Inputs& inputs, int quality = kQualityAuto);
 void SetCreation(Parameter& parameters, const Creation& creation, uint32_t preset);
 void SetEvaluation(Parameter& parameters, const Pssr::Request& request, Inputs& inputs, bool reset);
 
