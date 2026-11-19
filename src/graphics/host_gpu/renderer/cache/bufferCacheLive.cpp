@@ -50,6 +50,7 @@
 #include "kernel/memory.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cinttypes>
 #include <cstdio>
@@ -92,6 +93,49 @@ BufferCache* g_live_cache = nullptr; // the cache whose state the StreamCopyDefe
 uint64_t LiveEnvU64(const char* name, uint64_t fallback) {
 	const auto* value = std::getenv(name);
 	return value != nullptr && value[0] != '\0' ? std::strtoull(value, nullptr, 0) : fallback;
+}
+
+// KYTY_BDA_LIVE_PROFILE=1 (diagnostic, default off, read once): per-check time of the redirect
+// qualification loop (LiveSyncBufferRange), accumulated since start and printed with the other
+// BdaLivePages totals every 10 s as "BdaLiveProfile". The loop runs ~126 times per frame on Ghost
+// of Yotei; this says which check of a CPU-dirty candidate actually costs the walk's milliseconds,
+// so the next change is made where the time is instead of where it looks large.
+bool LiveProfileEnabled() {
+	static const bool on = [] {
+		const auto* value = std::getenv("KYTY_BDA_LIVE_PROFILE");
+		return value != nullptr && value[0] == '1';
+	}();
+	return on;
+}
+
+struct LiveProfileCounters {
+	std::atomic<uint64_t> tag_ns {0};
+	std::atomic<uint64_t> hot_ns {0};
+	std::atomic<uint64_t> gpu_dirty_ns {0};
+	std::atomic<uint64_t> publish_ns {0};
+	std::atomic<uint64_t> texture_ns {0};
+	std::atomic<uint64_t> alias_ns {0};
+	std::atomic<uint64_t> window_ns {0};
+	std::atomic<uint64_t> candidates {0};
+	std::atomic<uint64_t> rejected {0};
+	std::atomic<uint64_t> redirected {0};
+};
+LiveProfileCounters g_live_profile;
+
+// Runs one check, adding its time to `sink` when profiling is on. Short-circuit order of the callers
+// is unchanged: the callable runs at most once per call site and its result is returned as is.
+template <typename Fn>
+bool TimedCheck(std::atomic<uint64_t>& sink, Fn&& check) {
+	if (!LiveProfileEnabled()) {
+		return check();
+	}
+	const auto begin  = std::chrono::steady_clock::now();
+	const bool result = check();
+	sink.fetch_add(static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+	                                         std::chrono::steady_clock::now() - begin)
+	                                         .count()),
+	               std::memory_order_relaxed);
+	return result;
 }
 
 constexpr uint64_t PAGE = BufferCache::CACHING_PAGESIZE;
@@ -458,22 +502,43 @@ void BufferCache::LiveSyncBufferRange(BufferId id, uint64_t start, uint64_t size
 						// backing alias and window lookup are skipped: GuestBackingAlias and
 						// Translate walk the imported windows, and this loop is 97 candidates per
 						// frame at Yotei's torii.
-						if (BdaTagAccessed(page) || m_memory_tracker.IsRegionHot(address, PAGE) ||
-						    HasGpuDirtyBytes(address, PAGE) || HasPendingBackingPublication(address, PAGE) ||
-						    m_texture_cache.IsRegionGpuModified(address, PAGE)) {
+						if (LiveProfileEnabled()) {
+							g_live_profile.candidates.fetch_add(1, std::memory_order_relaxed);
+						}
+						if (TimedCheck(g_live_profile.tag_ns, [&] { return BdaTagAccessed(page); }) ||
+						    TimedCheck(g_live_profile.hot_ns,
+						               [&] { return m_memory_tracker.IsRegionHot(address, PAGE); }) ||
+						    TimedCheck(g_live_profile.gpu_dirty_ns,
+						               [&] { return HasGpuDirtyBytes(address, PAGE); }) ||
+						    TimedCheck(g_live_profile.publish_ns,
+						               [&] { return HasPendingBackingPublication(address, PAGE); }) ||
+						    TimedCheck(g_live_profile.texture_ns,
+						               [&] { return m_texture_cache.IsRegionGpuModified(address, PAGE); })) {
+							if (LiveProfileEnabled()) {
+								g_live_profile.rejected.fetch_add(1, std::memory_order_relaxed);
+							}
 							continue;
 						}
 						live.trigger        = address; // names the page in an import line
 						live.trigger_buffer = buffer.CpuAddress();
 						live.trigger_size   = buffer.Size();
-						const auto* host =
-						    static_cast<const uint8_t*>(LibKernel::Memory::GuestBackingAlias(address, PAGE));
-						const auto dev =
-						    host != nullptr ? live.windows->Translate(reinterpret_cast<uint64_t>(host), PAGE + 64) : 0;
+						const void* host = nullptr;
+						TimedCheck(g_live_profile.alias_ns, [&] {
+							host = LibKernel::Memory::GuestBackingAlias(address, PAGE);
+							return host != nullptr;
+						});
+						const auto dev = TimedCheck(g_live_profile.window_ns, [&] {
+							return host != nullptr
+							           ? live.windows->Translate(reinterpret_cast<uint64_t>(host), PAGE + 64)
+							           : 0;
+						});
 						if (dev == 0) {
 							std::scoped_lock lock(live.mutex);
 							live.totals.rejects_window++;
 						} else {
+							if (LiveProfileEnabled()) {
+								g_live_profile.redirected.fetch_add(1, std::memory_order_relaxed);
+							}
 							entry = dev;
 							if (verify) {
 								for (uint64_t k = 0; k < SUBPAGES; ++k) {
@@ -1098,6 +1163,22 @@ void BufferCache::ReportBdaLive() {
 	            per(t.settled, r.settled), per(t.qual_calls, r.qual_calls), per(t.qual_fast, r.qual_fast),
 	            per(t.qual_pages, r.qual_pages), per(t.qual_dirty, r.qual_dirty), per(t.qual_segments, r.qual_segments),
 	            per(t.qual_ns, r.qual_ns) / 1e6, per(t.prepass_calls, r.prepass_calls), per(t.prepass_work, r.prepass_work), t.v2_gpu, t.v2_image, t.v2_hot, t.v5, t.v5_checks, t.v6);
+	// KYTY_BDA_LIVE_PROFILE: where a CPU-dirty candidate's time goes, in microseconds per second of
+	// running time (the checks are independent; alias and window only run for pages nothing else
+	// rejected).
+	if (LiveProfileEnabled()) {
+		const auto ms = [](std::atomic<uint64_t>& counter) {
+			return static_cast<double>(counter.exchange(0, std::memory_order_relaxed)) / 1e6;
+		};
+		std::printf("BdaLiveProfile %.0fs: candidates %" PRIu64 " (redirected %" PRIu64 ", rejected %" PRIu64 ") | "
+		            "ms since last: tag %.3f, hot %.3f, gpu-dirty %.3f, publication %.3f, texture %.3f, "
+		            "alias %.3f, window %.3f\n",
+		            elapsed, g_live_profile.candidates.exchange(0, std::memory_order_relaxed),
+		            g_live_profile.redirected.exchange(0, std::memory_order_relaxed),
+		            g_live_profile.rejected.exchange(0, std::memory_order_relaxed), ms(g_live_profile.tag_ns),
+		            ms(g_live_profile.hot_ns), ms(g_live_profile.gpu_dirty_ns), ms(g_live_profile.publish_ns),
+		            ms(g_live_profile.texture_ns), ms(g_live_profile.alias_ns), ms(g_live_profile.window_ns));
+	}
 	std::fflush(stdout);
 	live.report_time   = now;
 	live.reported      = t;
