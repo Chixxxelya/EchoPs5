@@ -11,6 +11,7 @@ import argparse
 import csv
 import json
 import math
+import re
 import statistics
 import sys
 from pathlib import Path
@@ -169,7 +170,108 @@ def analyze_pace(path: Path) -> dict:
     }
 
 
-def analyze(frames: Path, pace: Path | None = None, waits: Path | None = None, label: str = "") -> dict:
+def _duration_stats(values_s: Sequence[float]) -> dict:
+    return {
+        "count": len(values_s),
+        "total_seconds": sum(values_s),
+        "max_seconds": max(values_s, default=0.0),
+    }
+
+
+def analyze_console_log(path: Path) -> dict:
+    """Extract startup and compilation facts from the emulator's console/_kyty.txt text.
+
+    Durations from different log lines can describe the same wall-clock interval, so frame stalls,
+    compile waits and RT builds stay in separate fields instead of being added together.
+    """
+    text = path.read_text(encoding="utf-8-sig", errors="replace")
+    report: dict = {}
+    recognized = False
+
+    def capture(pattern: str, field: str, cast=str):
+        nonlocal recognized
+        match = re.search(pattern, text, re.MULTILINE)
+        if match:
+            report[field] = cast(match.group(1))
+            recognized = True
+
+    capture(r"^Title ID:\s*(\S+)\s*$", "title_id")
+    capture(r"^Fork build\s+(.+?)\s*$", "build")
+    capture(r"^Kyty GPU:\s*(.+?)\s*\([^)]*\)\s*$", "gpu")
+    first_flip = re.search(r"^KYTY_EVENT: first-flip frame=(\d+) t=([0-9.]+)\s*$", text, re.MULTILINE)
+    if first_flip:
+        report["first_flip"] = {"frame": int(first_flip.group(1)), "seconds": float(first_flip.group(2))}
+        recognized = True
+
+    frame_stalls = [float(value) for value in re.findall(r"^Frame stall: no flip for ([0-9.]+) s", text, re.MULTILINE)]
+    compile_waits = [
+        float(value) for value in re.findall(r"^Compile wait: dispatch unblocked after ([0-9.]+) s", text, re.MULTILINE)
+    ]
+    rt_builds_ms = [
+        int(value)
+        for value in re.findall(r"^Software RT pipeline of compute shader \S+ built in (\d+) ms", text, re.MULTILINE)
+    ]
+    bda_walk_ms = [
+        float(value) for value in re.findall(r"^BdaLivePages batch .*? ([0-9.]+) ms in the walk", text, re.MULTILINE)
+    ]
+    if frame_stalls:
+        report["frame_stalls"] = _duration_stats(frame_stalls)
+        recognized = True
+    if compile_waits:
+        report["compile_waits"] = _duration_stats(compile_waits)
+        recognized = True
+    if rt_builds_ms:
+        report["rt_pipeline_builds"] = {
+            "count": len(rt_builds_ms),
+            "total_ms": sum(rt_builds_ms),
+            "max_ms": max(rt_builds_ms),
+        }
+        recognized = True
+    if bda_walk_ms:
+        report["bda_live_walk"] = {
+            "samples": len(bda_walk_ms),
+            "mean_ms": statistics.fmean(bda_walk_ms),
+            "max_ms": max(bda_walk_ms),
+        }
+        recognized = True
+
+    precompile = re.search(r"^Shader precompile: done, (\d+)/(\d+):.*?([0-9.]+) s\s*$", text, re.MULTILINE)
+    if precompile:
+        report["shader_precompile"] = {
+            "completed": int(precompile.group(1)),
+            "total": int(precompile.group(2)),
+            "seconds": float(precompile.group(3)),
+        }
+        recognized = True
+    replay = re.search(
+        r"^Pipeline journal: replay done after ([0-9.]+) s: (\d+) built \(([0-9.]+) ms;.*?(\d+) with modules not published",
+        text,
+        re.MULTILINE,
+    )
+    if replay:
+        report["pipeline_replay"] = {
+            "wall_seconds": float(replay.group(1)),
+            "built": int(replay.group(2)),
+            "build_thread_seconds": float(replay.group(3)) / 1000.0,
+            "modules_not_published": int(replay.group(4)),
+        }
+        recognized = True
+    crash = re.search(r"^Unhandled host exception:.*$", text, re.MULTILINE)
+    if crash:
+        report["crash"] = crash.group(0)
+        recognized = True
+    if not recognized:
+        raise ValueError(f"{path}: no recognized Kyty console events")
+    return report
+
+
+def analyze(
+    frames: Path,
+    pace: Path | None = None,
+    waits: Path | None = None,
+    label: str = "",
+    emulator_log: Path | None = None,
+) -> dict:
     report = {
         "schema_version": SCHEMA_VERSION,
         "label": label,
@@ -179,6 +281,8 @@ def analyze(frames: Path, pace: Path | None = None, waits: Path | None = None, l
         report["pace"] = analyze_pace(pace)
     if waits is not None:
         report["compile_stalls"] = analyze_waits(waits)
+    if emulator_log is not None:
+        report["console_log"] = analyze_console_log(emulator_log)
     return report
 
 
@@ -252,6 +356,21 @@ def format_summary(report: dict) -> str:
             f"Compile stalls: {stalls['count']}, thread-time {stalls['total_thread_ms']:.1f} ms, "
             f"max {stalls['max_ms']:.1f} ms"
         )
+    if "console_log" in report:
+        console = report["console_log"]
+        if "first_flip" in console:
+            lines.append(f"First flip: frame {console['first_flip']['frame']} at {console['first_flip']['seconds']:.3f} s")
+        if "frame_stalls" in console:
+            lines.append(
+                f"Frame stalls: {console['frame_stalls']['count']}, max {console['frame_stalls']['max_seconds']:.2f} s"
+            )
+        if "compile_waits" in console:
+            lines.append(
+                f"Completed compile waits: {console['compile_waits']['count']}, "
+                f"max {console['compile_waits']['max_seconds']:.2f} s"
+            )
+        if "crash" in console:
+            lines.append(f"Crash: {console['crash']}")
     return "\n".join(lines)
 
 
@@ -319,6 +438,7 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_parser.add_argument("--frames", type=Path, required=True, help="KYTY_FRAME_TIMES_LOG CSV")
     analyze_parser.add_argument("--pace", type=Path, help="KYTY_PACE_LOG CSV")
     analyze_parser.add_argument("--waits", type=Path, help="pace CSV .waits.csv")
+    analyze_parser.add_argument("--emulator-log", type=Path, help="console text or _kyty.txt")
     analyze_parser.add_argument("--label", default="", help="run name in the report")
     analyze_parser.add_argument("--output", type=Path, help="write the JSON report here")
     analyze_parser.add_argument("--json", action="store_true", help="print JSON instead of the summary")
@@ -335,7 +455,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "analyze":
-            report = analyze(args.frames, args.pace, args.waits, args.label)
+            report = analyze(args.frames, args.pace, args.waits, args.label, args.emulator_log)
             if args.output:
                 write_json(args.output, report)
             print(json.dumps(report, indent=2, ensure_ascii=False) if args.json else format_summary(report))

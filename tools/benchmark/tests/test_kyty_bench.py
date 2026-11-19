@@ -136,5 +136,48 @@ class CsvTests(unittest.TestCase):
         json.dumps(report)
 
 
+class ConsoleLogTests(unittest.TestCase):
+    SAMPLE = """Title ID: PPSA01325
+Kyty GPU: NVIDIA GeForce RTX 3060 (automatic choice)
+Shader precompile: done, 373/373: 368 compiled, 0 reloaded, 5 present, 0 skipped, 0 failed, 5.8 s
+Pipeline journal: replay done after 21.0 s: 99 built (108450.4 ms; 0 with another translator's modules, 99 from the pipeline list), 0 skipped as known, 633 with modules not published, 0 failed
+KYTY_EVENT: first-flip frame=1 t=20.494
+Compile wait: dispatch unblocked after 9.6 s (compute pipeline 0x960283b0fb8994b2)
+Compile wait: dispatch unblocked after 6.7 s (RT pipeline 0x218a352c8147ddba)
+Software RT pipeline of compute shader 0x218a352c8147ddba built in 6731 ms, ready 6730 ms after it was requested; its first dispatch waited 6731 ms, 0 dispatch(es) skipped
+Frame stall: no flip for 10.6 s (after flip 1). Last Vulkan submission 0.0 s ago.
+BdaLivePages batch (on): per frame: entry copies 6.00 | qualification calls 126.0, 16.951 ms in the walk incl. its synchronizations
+Fork build Jetsku/KytyPS5 dd9f990
+Unhandled host exception: type=1 code=3221225477 pc=0x0000000910003b5d
+"""
+
+    def test_console_log_extracts_startup_stalls_and_build_facts(self):
+        with mock.patch("pathlib.Path.read_text", return_value=self.SAMPLE):
+            report = kyty_bench.analyze_console_log(Path("_kyty.txt"))
+        self.assertEqual(report["title_id"], "PPSA01325")
+        self.assertEqual(report["gpu"], "NVIDIA GeForce RTX 3060")
+        self.assertEqual(report["build"], "Jetsku/KytyPS5 dd9f990")
+        self.assertEqual(report["first_flip"]["frame"], 1)
+        self.assertAlmostEqual(report["first_flip"]["seconds"], 20.494)
+        self.assertEqual(report["compile_waits"]["count"], 2)
+        self.assertAlmostEqual(report["compile_waits"]["total_seconds"], 16.3)
+        self.assertAlmostEqual(report["compile_waits"]["max_seconds"], 9.6)
+        self.assertAlmostEqual(report["frame_stalls"]["max_seconds"], 10.6)
+        self.assertEqual(report["rt_pipeline_builds"]["count"], 1)
+        self.assertEqual(report["rt_pipeline_builds"]["max_ms"], 6731)
+        self.assertAlmostEqual(report["bda_live_walk"]["mean_ms"], 16.951)
+        self.assertEqual(report["shader_precompile"]["completed"], 373)
+        self.assertAlmostEqual(report["shader_precompile"]["seconds"], 5.8)
+        self.assertEqual(report["pipeline_replay"]["built"], 99)
+        self.assertAlmostEqual(report["pipeline_replay"]["build_thread_seconds"], 108.4504)
+        self.assertEqual(report["pipeline_replay"]["modules_not_published"], 633)
+        self.assertIn("Unhandled host exception", report["crash"])
+
+    def test_console_log_rejects_unrelated_text(self):
+        with mock.patch("pathlib.Path.read_text", return_value="hello\n"):
+            with self.assertRaises(ValueError):
+                kyty_bench.analyze_console_log(Path("other.log"))
+
+
 if __name__ == "__main__":
     unittest.main()

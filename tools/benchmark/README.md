@@ -54,6 +54,7 @@ py tools\benchmark\kyty_bench.py analyze `
   --frames ..\_Benchmark\baseline.frames.csv `
   --pace ..\_Benchmark\baseline.pace.csv `
   --waits ..\_Benchmark\baseline.pace.csv.waits.csv `
+  --emulator-log ..\_kyty.txt `
   --label baseline --output ..\_Benchmark\baseline.json
 
 py tools\benchmark\kyty_bench.py analyze `
@@ -67,8 +68,12 @@ py tools\benchmark\kyty_bench.py compare `
   --output ..\_Benchmark\comparison.json
 ```
 
-`--pace` and `--waits` are optional. `--json` prints the machine-readable report instead of the human
-summary. A report stores no game or save data.
+`--pace`, `--waits` and `--emulator-log` are optional. `--emulator-log` reads the existing console
+text/`_kyty.txt` and extracts the title/build/GPU, first-flip time, frame stalls, completed compile
+waits, shader precompile/replay totals, RT pipeline builds, BDA live-walk samples and a crash line.
+Those durations can overlap and are deliberately reported separately, never summed as wall time.
+`--json` prints the machine-readable report instead of the human summary. A report stores no game or
+save data.
 
 ## Metric definitions
 
