@@ -70,6 +70,11 @@ QVariantMap Configuration::GameSettings() const {
 	KYTY_CFG_SET(performance_prep_hot);
 	KYTY_CFG_SET(performance_merge_gap_kb);
 	KYTY_CFG_SET(present_sharpness);
+	KYTY_CFG_SET(bench_frame_log);
+	KYTY_CFG_SET(bench_pace_log);
+	KYTY_CFG_SET(bench_gpu_timing);
+	KYTY_CFG_SET(bench_bda_profile);
+	KYTY_CFG_SET(bench_tag);
 	KYTY_CFG_SET(trophy_enabled);
 	KYTY_CFG_SET(trophy_duration_seconds);
 	KYTY_CFG_SET(perf_overlay_enabled);
@@ -215,6 +220,25 @@ void Configuration::ApplyPerformanceProfile(QProcessEnvironment& environment) co
 		environment.insert(QStringLiteral("KYTY_PRESENT_SHARPNESS"),
 		                   QString::number(static_cast<double>(present_sharpness) / 100.0, 'f', 2));
 	}
+	// Measurement logs, per game: the emulator writes them under _Benchmark/ in its own folder.
+	const auto tag = bench_tag.isEmpty() ? QStringLiteral("run") : bench_tag;
+	const auto set = [&](const char* name, const QString& value) {
+		if (!environment.contains(QString::fromLatin1(name))) {
+			environment.insert(QString::fromLatin1(name), value);
+		}
+	};
+	if (bench_frame_log) {
+		set("KYTY_FRAME_TIMES_LOG", QStringLiteral("_Benchmark/%1.frames.csv").arg(tag));
+	}
+	if (bench_pace_log) {
+		set("KYTY_PACE_LOG", QStringLiteral("_Benchmark/%1.pace.csv").arg(tag));
+	}
+	if (bench_gpu_timing) {
+		set("KYTY_GPU_TIMING", QStringLiteral("1"));
+	}
+	if (bench_bda_profile) {
+		set("KYTY_BDA_LIVE_PROFILE", QStringLiteral("1"));
+	}
 }
 
 template <class Settings>
@@ -281,6 +305,16 @@ void Configuration::ReadGameSettingsValues(const Settings& s) {
 	performance_prep_hot     = std::clamp(s.value("performance_prep_hot", 0).toInt(), 0, 32);
 	performance_merge_gap_kb = std::clamp(s.value("performance_merge_gap_kb", 0).toInt(), 0, 4096);
 	present_sharpness        = std::clamp(s.value("present_sharpness", 0).toInt(), 0, 100);
+	bench_frame_log          = s.value("bench_frame_log", false).toBool();
+	bench_pace_log           = s.value("bench_pace_log", false).toBool();
+	bench_gpu_timing         = s.value("bench_gpu_timing", false).toBool();
+	bench_bda_profile        = s.value("bench_bda_profile", false).toBool();
+	bench_tag                = s.value("bench_tag", QStringLiteral("run")).toString().trimmed();
+	if (bench_tag.isEmpty()) {
+		bench_tag = QStringLiteral("run");
+	}
+	// The tag becomes a file name: keep it to characters that are safe on every file system.
+	bench_tag.remove(QRegularExpression(QStringLiteral("[^A-Za-z0-9._-]")));
 	shader_cache_enabled = s.value("shader_cache_enabled", shader_cache_enabled).toBool();
 	trophy_enabled       = s.value("trophy_enabled", trophy_enabled).toBool();
 	KYTY_CFG_GET(trophy_duration_seconds);

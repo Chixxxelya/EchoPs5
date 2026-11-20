@@ -284,6 +284,11 @@ public:
 		performance_prep_hot        = other.performance_prep_hot;
 		performance_merge_gap_kb    = other.performance_merge_gap_kb;
 		present_sharpness           = other.present_sharpness;
+		bench_frame_log             = other.bench_frame_log;
+		bench_pace_log              = other.bench_pace_log;
+		bench_gpu_timing            = other.bench_gpu_timing;
+		bench_bda_profile           = other.bench_bda_profile;
+		bench_tag                   = other.bench_tag;
 		amd_cpu_mode                = other.amd_cpu_mode;
 		guest_tsc_enabled           = other.guest_tsc_enabled;
 #if defined(_WIN32)
@@ -341,6 +346,14 @@ public:
 	// Presentation sharpness in percent (key present_sharpness): an unsharp mask in the presentation
 	// filter, applied to every title's finished image. 0 = off.
 	int                    present_sharpness        = 0;
+	// Measurement (keys bench_frame_log, bench_pace_log, bench_gpu_timing, bench_bda_profile,
+	// bench_tag): the emulator's own logs, written into _Benchmark/<tag>.* next to it. Off by default:
+	// they cost time and disk, and are only useful while measuring.
+	bool                   bench_frame_log         = false;
+	bool                   bench_pace_log          = false;
+	bool                   bench_gpu_timing        = false;
+	bool                   bench_bda_profile       = false;
+	QString                bench_tag               = QStringLiteral("run");
 	void ApplyPerformanceProfile(QProcessEnvironment& environment) const;	// Call on a temporary configuration: validation can fail after loading values.
 	bool SetGameSettings(const QJsonObject& settings, QString& error);
 

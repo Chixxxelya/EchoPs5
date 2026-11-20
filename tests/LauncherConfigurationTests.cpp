@@ -273,6 +273,32 @@ int main() {
 		Configuration sharp_back;
 		sharp_back.ReadSettings(&out);
 		Check(sharp_back.present_sharpness == 35, "sharpness survived the round trip");
+
+		// Measurements: off by default, written into _Benchmark/<tag>.*, and the tag is made safe for
+		// a file name.
+		Configuration bench;
+		QProcessEnvironment nothing;
+		bench.ApplyPerformanceProfile(nothing);
+		Check(!nothing.contains(QStringLiteral("KYTY_FRAME_TIMES_LOG")), "no frames log by default");
+		bench.bench_frame_log  = true;
+		bench.bench_pace_log   = true;
+		bench.bench_gpu_timing = true;
+		bench.bench_bda_profile = true;
+		bench.bench_tag        = QStringLiteral("astro/play test");
+		QProcessEnvironment bench_env;
+		bench.ApplyPerformanceProfile(bench_env);
+		Check(bench_env.value(QStringLiteral("KYTY_FRAME_TIMES_LOG")).startsWith(QStringLiteral("_Benchmark/")) &&
+		          bench_env.value(QStringLiteral("KYTY_FRAME_TIMES_LOG")).endsWith(QStringLiteral(".frames.csv")),
+		      "frames log path");
+		Check(bench_env.value(QStringLiteral("KYTY_PACE_LOG")).endsWith(QStringLiteral(".pace.csv")), "pace log path");
+		Check(bench_env.value(QStringLiteral("KYTY_GPU_TIMING")) == QStringLiteral("1"), "gpu timing");
+		Check(bench_env.value(QStringLiteral("KYTY_BDA_LIVE_PROFILE")) == QStringLiteral("1"), "live profile");
+		QSettings tag_file(dir.filePath(QStringLiteral("tag.ini")), QSettings::IniFormat);
+		tag_file.setValue(QStringLiteral("bench_tag"), QStringLiteral("astro/play test"));
+		Configuration tagged;
+		tagged.ReadSettings(&tag_file);
+		Check(!tagged.bench_tag.contains(u'/') && !tagged.bench_tag.contains(u' '),
+		      "the run tag keeps only file-name characters");
 		QProcessEnvironment preset;
 		preset.insert(QStringLiteral("KYTY_GPU_HAZARD"), QStringLiteral("0"));
 		fast.ApplyPerformanceProfile(preset);

@@ -56,6 +56,12 @@ private:
 	QSpinBox*                    m_perf_hot        = nullptr;
 	QSpinBox*                    m_perf_merge      = nullptr;
 	QSpinBox*                    m_present_sharpness = nullptr;
+	// Measurement panel.
+	QCheckBox*                   m_bench_frames    = nullptr;
+	QCheckBox*                   m_bench_pace      = nullptr;
+	QCheckBox*                   m_bench_gpu       = nullptr;
+	QCheckBox*                   m_bench_bda       = nullptr;
+	QLineEdit*                   m_bench_tag       = nullptr;
 	bool                         m_global_settings        = false;
 	bool                         m_geometry_restored      = false;
 

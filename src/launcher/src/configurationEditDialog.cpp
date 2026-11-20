@@ -164,6 +164,11 @@ struct PerformancePanel {
 	QSpinBox*                hot;
 	QSpinBox*                merge;
 	QSpinBox*                sharpness;
+	QCheckBox*               bench_frames;
+	QCheckBox*               bench_pace;
+	QCheckBox*               bench_gpu;
+	QCheckBox*               bench_bda;
+	QLineEdit*               bench_tag;
 };
 
 static void UpdateInfo(Configuration& info, Ui::ConfigurationEditDialog& ui, bool global_settings,
@@ -249,7 +254,8 @@ ConfigurationEditDialog::ConfigurationEditDialog(Configuration& info, QWidget* p
 			current.CopyGlobalOnlySettingsFrom(m_info);
 			UpdateInfo(current, *m_ui, m_global_settings,
 			           {m_perf_checks, m_perf_tokens, m_perf_window, m_perf_hot, m_perf_merge,
-			            m_present_sharpness});
+			            m_present_sharpness, m_bench_frames, m_bench_pace, m_bench_gpu, m_bench_bda,
+			            m_bench_tag});
 			current.ApplyRecommendedGameSettings(m_info.title_id);
 			Init(current);
 		});
@@ -415,6 +421,42 @@ void ConfigurationEditDialog::InitPerformanceGroup() {
 	});
 
 	m_ui->generalLayout->addWidget(m_perf_group);
+
+	// Measurements: the emulator's own logs, off by default.
+	auto* bench_group = new QGroupBox(tr("Measurements"), m_ui->general_group);
+	auto* bench_layout = new QVBoxLayout(bench_group);
+	bench_layout->setContentsMargins(8, 8, 8, 8);
+	bench_layout->setSpacing(4);
+	auto* bench_hint = new QLabel(
+	    tr("While measuring, the emulator writes its logs into the _Benchmark folder next to it. "
+	       "Play 90–120 seconds of the same route, then compare the reports. Off outside a run: they "
+	       "cost time and disk."),
+	    bench_group);
+	bench_hint->setWordWrap(true);
+	bench_hint->setStyleSheet(QStringLiteral("QLabel { color: #808080; }"));
+	bench_layout->addWidget(bench_hint);
+	m_bench_frames = new QCheckBox(tr("Frame-time log (FPS, 1% low, stutters)"), bench_group);
+	m_bench_frames->setToolTip(tr("KYTY_FRAME_TIMES_LOG: one line per presented frame."));
+	m_bench_pace = new QCheckBox(tr("Pace log (GPU busy/starved, command buffers)"), bench_group);
+	m_bench_pace->setToolTip(tr("KYTY_PACE_LOG: how the GPU was fed each frame."));
+	m_bench_gpu = new QCheckBox(tr("GPU timing"), bench_group);
+	m_bench_gpu->setToolTip(tr("KYTY_GPU_TIMING=1: per-pass GPU times; the performance overlay shows "
+	                           "the GPU load while it is on."));
+	m_bench_bda = new QCheckBox(tr("Live-page profile"), bench_group);
+	m_bench_bda->setToolTip(tr("KYTY_BDA_LIVE_PROFILE=1: per-check time of the live-page redirect loop, "
+	                           "printed every 10 seconds."));
+	for (auto* box: {m_bench_frames, m_bench_pace, m_bench_gpu, m_bench_bda}) {
+		bench_layout->addWidget(box);
+	}
+	auto* tag_row = new QHBoxLayout();
+	tag_row->addWidget(new QLabel(tr("Run tag:"), bench_group));
+	m_bench_tag = new QLineEdit(bench_group);
+	m_bench_tag->setMaxLength(48);
+	m_bench_tag->setToolTip(tr("File names: _Benchmark/<tag>.frames.csv and <tag>.pace.csv. "
+	                           "Use the same tag for a before/after pair only if it is a new run."));
+	tag_row->addWidget(m_bench_tag);
+	bench_layout->addLayout(tag_row);
+	m_ui->generalLayout->addWidget(bench_group);
 }
 
 // The DLSS model is NVIDIA's proprietary file: EchoPS neither bundles nor downloads it. These two
@@ -664,6 +706,11 @@ void ConfigurationEditDialog::Init(const Configuration& info) {
 		m_perf_hot->setValue(info.performance_prep_hot);
 		m_perf_merge->setValue(info.performance_merge_gap_kb);
 		m_present_sharpness->setValue(info.present_sharpness);
+		m_bench_frames->setChecked(info.bench_frame_log);
+		m_bench_pace->setChecked(info.bench_pace_log);
+		m_bench_gpu->setChecked(info.bench_gpu_timing);
+		m_bench_bda->setChecked(info.bench_bda_profile);
+		m_bench_tag->setText(info.bench_tag);
 	}
 	// Partly checked: automatic (on unless the CPU is an AMD).
 	m_ui->checkBox_amd_cpu->setTristate(true);
@@ -939,6 +986,11 @@ static void UpdateInfo(Configuration& info, Ui::ConfigurationEditDialog& ui, boo
 		info.performance_prep_hot        = panel.hot->value();
 		info.performance_merge_gap_kb    = panel.merge->value();
 		info.present_sharpness           = panel.sharpness->value();
+		info.bench_frame_log             = panel.bench_frames->isChecked();
+		info.bench_pace_log              = panel.bench_pace->isChecked();
+		info.bench_gpu_timing            = panel.bench_gpu->isChecked();
+		info.bench_bda_profile           = panel.bench_bda->isChecked();
+		info.bench_tag                   = panel.bench_tag->text().trimmed();
 	}
 	const auto amd_cpu             = ui.checkBox_amd_cpu->checkState();
 	info.amd_cpu_mode              = amd_cpu == Qt::Checked     ? QStringLiteral("on")
@@ -1000,7 +1052,8 @@ void ConfigurationEditDialog::save() {
 
 	UpdateInfo(m_info, *m_ui, m_global_settings,
 	           {m_perf_checks, m_perf_tokens, m_perf_window, m_perf_hot, m_perf_merge,
-	            m_present_sharpness});
+			            m_present_sharpness, m_bench_frames, m_bench_pace, m_bench_gpu, m_bench_bda,
+			            m_bench_tag});
 
 	emit accept();
 }

@@ -614,6 +614,11 @@ static QStringList SetupEmulatorProcess(QProcess* process, const QString& interp
 		// The per-game "performance profile": the same rule, the profile's switches go where nothing
 		// else has set them.
 		info.ApplyPerformanceProfile(environment);
+		// The measurement logs go into _Benchmark next to the emulator; make it before the game
+		// starts, since the emulator does not create it.
+		if (info.bench_frame_log || info.bench_pace_log) {
+			QDir(QApplication::applicationDirPath()).mkpath(QStringLiteral("_Benchmark"));
+		}
 		process->setProcessEnvironment(environment);
 	}
 	// The per-game "smooth frametime fix" checkbox (Immediate mode only) turns the absolute
