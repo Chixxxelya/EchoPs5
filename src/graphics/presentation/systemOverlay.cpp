@@ -628,6 +628,11 @@ PFN_vkVoidFunction LoadVulkanFunction(const char* name, void* user_data) {
 	return graphics.instance.getProcAddr(name);
 }
 
+// Set when any ImGui Vulkan call fails. The overlay is a convenience (splash, toasts, panel); a
+// machine where its pipeline cannot be created must still play, so a failure disables the overlay
+// for the rest of the run instead of ending the process.
+std::atomic<bool> g_overlay_failed {false};
+
 void CheckVulkanResult(VkResult result) {
 	if (result == VK_SUCCESS) {
 		return;
@@ -635,10 +640,12 @@ void CheckVulkanResult(VkResult result) {
 	// The number names the failure: -1 out of host memory, -2 out of device memory, -3 initialisation
 	// failed, -4 device lost, -8 fragmented pool, -9 out of pool memory, -12 out of date. Without it
 	// the message says only that some ImGui call failed.
-	std::fprintf(stderr, "System overlay: an ImGui Vulkan call failed with VkResult %d\n",
+	std::fprintf(stderr,
+	             "System overlay: an ImGui Vulkan call failed with VkResult %d; the overlay is off for "
+	             "this run (KYTY_NO_SYSTEM_OVERLAY=1 silences it)\n",
 	             static_cast<int>(result));
 	std::fflush(stderr);
-	EXIT_IF(result != VK_SUCCESS);
+	g_overlay_failed.store(true, std::memory_order_release);
 }
 
 // KYTY_NO_SYSTEM_OVERLAY=1 (startup, default off): skip the ImGui overlay entirely (splash, trophy
@@ -1120,11 +1127,17 @@ struct SystemOverlay::Impl {
 
 	void EnsureVulkan(vk::Format format, uint32_t image_count) {
 		EnsureContext();
-		if (vulkan_initialized) {
+		if (vulkan_initialized || g_overlay_failed.load(std::memory_order_acquire)) {
 			return;
 		}
 		EXIT_IF(image_count < 2);
-		EXIT_IF(!ImGui_ImplVulkan_LoadFunctions(VK_API_VERSION_1_3, LoadVulkanFunction, &graphics));
+		if (!ImGui_ImplVulkan_LoadFunctions(VK_API_VERSION_1_3, LoadVulkanFunction, &graphics)) {
+			std::fprintf(stderr, "System overlay: ImGui could not load the Vulkan functions; the "
+			                     "overlay is off for this run\n");
+			std::fflush(stderr);
+			g_overlay_failed.store(true, std::memory_order_release);
+			return;
+		}
 
 		const VkFormat            color_format = static_cast<VkFormat>(format);
 		ImGui_ImplVulkan_InitInfo info {};
@@ -1149,7 +1162,14 @@ struct SystemOverlay::Impl {
 			info.CustomShaderFragCreateInfo.codeSize = sizeof(GPU_IMGUI_HDR_SPV);
 			info.CustomShaderFragCreateInfo.pCode    = GPU_IMGUI_HDR_SPV;
 		}
-		EXIT_IF(!ImGui_ImplVulkan_Init(&info));
+		if (!ImGui_ImplVulkan_Init(&info) ||
+		    g_overlay_failed.load(std::memory_order_acquire)) {
+			std::fprintf(stderr, "System overlay: ImGui Vulkan initialisation failed; the overlay is "
+			                     "off for this run\n");
+			std::fflush(stderr);
+			g_overlay_failed.store(true, std::memory_order_release);
+			return;
+		}
 		vulkan_initialized = true;
 	}
 
@@ -1822,7 +1842,7 @@ struct SystemOverlay::Impl {
 		// KYTY_NO_SYSTEM_OVERLAY=1: the ImGui overlay (splash, trophy toasts, performance overlay,
 		// IME) is skipped entirely. A machine where its pipeline cannot be created still plays, and
 		// an overlay failure stops hiding the rest of the emulator.
-		if (SystemOverlayDisabled()) {
+		if (SystemOverlayDisabled() || g_overlay_failed.load(std::memory_order_acquire)) {
 			return false;
 		}
 		OverlaySnapshot snapshot;

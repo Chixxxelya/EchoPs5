@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <filesystem>
 #include <span>
 #include <string>
 #include <string_view>
@@ -245,7 +246,21 @@ void SetEvaluation(Parameter& parameters, const Pssr::Request& request, Inputs& 
 }
 
 void Load() {
-	if (!Config::Ps5ProEnabled() || Config::GetDlssFolder().empty()) {
+	if (Config::GetDlssFolder().empty()) {
+		return;
+	}
+	if (!Config::Ps5ProEnabled()) {
+		// Motion vectors, depth and jitter come from the guest's PSSR request, which only PS5 Pro
+		// titles send; without --trinity there is nothing to feed the model. Say it once, so a
+		// silent linear upscale is not mistaken for a broken DLSS.
+		Log::WriteToConsoleAndLog(fmt::format(
+		    "DLSS: the model in {} needs PS5 Pro mode (--trinity); PSSR uses linear scaling\n",
+		    Common::PathToString(Config::GetDlssFolder())));
+		return;
+	}
+	if (!std::filesystem::is_regular_file(Config::GetDlssFolder() / "nvngx_dlss.dll")) {
+		Warn(fmt::format("DLSS: {} has no nvngx_dlss.dll; PSSR uses linear scaling",
+		                 Common::PathToString(Config::GetDlssFolder())));
 		return;
 	}
 	OpenCore();
