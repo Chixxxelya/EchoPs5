@@ -154,12 +154,23 @@ jobs:
         if: failure()
         shell: pwsh
         run: |
-          # Job logs need a GitHub sign-in to read; annotations do not. Repeat the first error lines as annotations.
+          # Job logs need a GitHub sign-in to read; annotations do not. Print the real error lines
+          # (ninja's FAILED: target, clang's "error:" and "fatal error:") and then the tail of the
+          # log, where the cause usually sits. Matching bare "error" caught file names like
+          # SDL_error.c.obj and said nothing.
           if (Test-Path -LiteralPath 'pgo-build.log') {
-            $lines = @(Get-Content -LiteralPath 'pgo-build.log' | Select-String -Pattern 'error|FAILED|fatal' | Select-Object -First 8)
-            if (-not $lines) { $lines = @(Get-Content -LiteralPath 'pgo-build.log' | Select-Object -Last 8) }
-            foreach ($line in $lines) { Write-Host ('::error::' + "$line".Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')) }
-          } else { Write-Host '::error::pgo-build.log was not written' }
+            $log = Get-Content -LiteralPath 'pgo-build.log'
+            $real = @($log | Select-String -Pattern '^FAILED:|error:|fatal error:|undefined symbol|LNK\d+' |
+                        Select-Object -First 10)
+            if (-not $real) { $real = @($log | Select-Object -Last 10) }
+            foreach ($line in $real) {
+              Write-Host ('::error::' + "$line".Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A'))
+            }
+            Write-Host '--- last 60 lines of pgo-build.log ---'
+            $log | Select-Object -Last 60 | ForEach-Object { Write-Host $_ }
+          } else {
+            Write-Host '::error::pgo-build.log was not written'
+          }
       - name: Report PGO coverage
         shell: pwsh
         run: |
