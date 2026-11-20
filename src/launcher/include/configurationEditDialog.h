@@ -62,6 +62,7 @@ private:
 protected:
 	void Init(const Configuration& info);
 	void InitPerformanceGroup();
+	void InitDlssHelpers();
 	void InitGameDirectories();
 	void AddGameDirectoryItem(const QString& dir);
 	void MakeTabsScrollable();

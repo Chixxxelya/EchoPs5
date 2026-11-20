@@ -10,7 +10,9 @@
 #include <QColorDialog>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDesktopServices>
 #include <QDir>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QGroupBox>
@@ -31,9 +33,11 @@
 #include <QSettings>
 #include <QSlider>
 #include <QSpinBox>
+#include <QStandardPaths>
 #include <QStyle>
 #include <QToolButton>
 #include <QTreeView>
+#include <QUrl>
 #include <QVBoxLayout>
 #include <QtAlgorithms>
 
@@ -306,6 +310,7 @@ ConfigurationEditDialog::ConfigurationEditDialog(Configuration& info, QWidget* p
 	setSizeGripEnabled(true);
 
 	InitPerformanceGroup();
+	InitDlssHelpers();
 	Init(info);
 	m_geometry_restored = restoreGeometry(g_last_geometry);
 	if (!m_geometry_restored) {
@@ -410,6 +415,67 @@ void ConfigurationEditDialog::InitPerformanceGroup() {
 	});
 
 	m_ui->generalLayout->addWidget(m_perf_group);
+}
+
+// The DLSS model is NVIDIA's proprietary file: EchoPS neither bundles nor downloads it. These two
+// buttons do what is allowed instead — copy one that is already on this PC (every installed RTX game
+// ships one) into the folder the emulator reads, or open NVIDIA's page.
+void ConfigurationEditDialog::InitDlssHelpers() {
+	auto* row    = new QWidget(m_ui->general_group);
+	auto* layout = new QHBoxLayout(row);
+	layout->setContentsMargins(0, 0, 0, 0);
+	auto* installed = new QPushButton(tr("Use an installed model…"), row);
+	installed->setToolTip(tr("Copy an nvngx_dlss.dll that is already on this PC into the DLSS folder "
+	                         "above. Most installed RTX games ship one. EchoPS does not download "
+	                         "NVIDIA's model: its licence does not allow redistribution."));
+	auto* get = new QPushButton(tr("Get DLSS from NVIDIA…"), row);
+	get->setToolTip(tr("Open NVIDIA's DLSS page in the browser; the model download is theirs."));
+	layout->addWidget(installed);
+	layout->addWidget(get);
+	layout->addStretch(1);
+	m_ui->pssrLayout->addRow(tr("Missing the model?"), row);
+
+	connect(installed, &QPushButton::clicked, this, [this] {
+		const auto file = QFileDialog::getOpenFileName(
+		    this, tr("Select the DLSS model"),
+		    QStandardPaths::writableLocation(QStandardPaths::HomeLocation),
+		    tr("DLSS model (nvngx_dlss.dll libnvidia-ngx-dlss.so*);;All files (*)"));
+		if (file.isEmpty()) {
+			return;
+		}
+		auto folder = m_ui->lineEdit_dlss_folder->text().trimmed();
+		if (folder.isEmpty()) {
+			folder = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("dlss"));
+		}
+		if (!QDir().mkpath(folder)) {
+			QMessageBox::warning(this, tr("DLSS model"),
+			                     tr("Could not create the folder\n%1")
+			                         .arg(QDir::toNativeSeparators(folder)));
+			return;
+		}
+		const auto name   = QFileInfo(file).fileName();
+		const auto target = QDir(folder).filePath(name);
+		if (QFileInfo::exists(target) && !QFile::remove(target)) {
+			QMessageBox::warning(this, tr("DLSS model"),
+			                     tr("Could not replace\n%1").arg(QDir::toNativeSeparators(target)));
+			return;
+		}
+		if (!QFile::copy(file, target)) {
+			QMessageBox::warning(
+			    this, tr("DLSS model"),
+			    tr("Could not copy\n%1\nto\n%2")
+			        .arg(QDir::toNativeSeparators(file), QDir::toNativeSeparators(folder)));
+			return;
+		}
+		m_ui->lineEdit_dlss_folder->setText(QDir::toNativeSeparators(folder));
+		QMessageBox::information(
+		    this, tr("DLSS model"),
+		    tr("%1 is in\n%2\n\nThe model still needs PS5 Pro mode (trinity) and an RTX GPU.")
+		        .arg(name, QDir::toNativeSeparators(folder)));
+	});
+	connect(get, &QPushButton::clicked, this, [] {
+		QDesktopServices::openUrl(QUrl(QStringLiteral("https://developer.nvidia.com/rtx/dlss")));
+	});
 }
 
 ConfigurationEditDialog::~ConfigurationEditDialog() {
