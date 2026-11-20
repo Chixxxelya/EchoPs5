@@ -69,6 +69,7 @@ QVariantMap Configuration::GameSettings() const {
 	KYTY_CFG_SET(performance_prep_window);
 	KYTY_CFG_SET(performance_prep_hot);
 	KYTY_CFG_SET(performance_merge_gap_kb);
+	KYTY_CFG_SET(present_sharpness);
 	KYTY_CFG_SET(trophy_enabled);
 	KYTY_CFG_SET(trophy_duration_seconds);
 	KYTY_CFG_SET(perf_overlay_enabled);
@@ -208,6 +209,12 @@ void Configuration::ApplyPerformanceProfile(QProcessEnvironment& environment) co
 			environment.insert(name, QString::number(value));
 		}
 	}
+	// Presentation sharpness is a quality switch, not one of the speed groups above: it always
+	// applies when set, whatever the other switches say.
+	if (present_sharpness > 0 && !environment.contains(QStringLiteral("KYTY_PRESENT_SHARPNESS"))) {
+		environment.insert(QStringLiteral("KYTY_PRESENT_SHARPNESS"),
+		                   QString::number(static_cast<double>(present_sharpness) / 100.0, 'f', 2));
+	}
 }
 
 template <class Settings>
@@ -273,6 +280,7 @@ void Configuration::ReadGameSettingsValues(const Settings& s) {
 	performance_prep_window  = std::clamp(s.value("performance_prep_window", 0).toInt(), 0, 1024);
 	performance_prep_hot     = std::clamp(s.value("performance_prep_hot", 0).toInt(), 0, 32);
 	performance_merge_gap_kb = std::clamp(s.value("performance_merge_gap_kb", 0).toInt(), 0, 4096);
+	present_sharpness        = std::clamp(s.value("present_sharpness", 0).toInt(), 0, 100);
 	shader_cache_enabled = s.value("shader_cache_enabled", shader_cache_enabled).toBool();
 	trophy_enabled       = s.value("trophy_enabled", trophy_enabled).toBool();
 	KYTY_CFG_GET(trophy_duration_seconds);

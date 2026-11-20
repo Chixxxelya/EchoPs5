@@ -337,6 +337,9 @@ public:
 	int                    performance_prep_window  = 0;
 	int                    performance_prep_hot     = 0;
 	int                    performance_merge_gap_kb = 0;
+	// Presentation sharpness in percent (key present_sharpness): an unsharp mask in the presentation
+	// filter, applied to every title's finished image. 0 = off.
+	int                    present_sharpness        = 0;
 	void ApplyPerformanceProfile(QProcessEnvironment& environment) const;	// Call on a temporary configuration: validation can fail after loading values.
 	bool SetGameSettings(const QJsonObject& settings, QString& error);
 

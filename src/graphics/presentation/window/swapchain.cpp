@@ -835,6 +835,21 @@ bool PresentNeedsFilter(vk::Extent2D source, vk::Extent2D target) noexcept {
 	       source.height <= 2ull * target.height;
 }
 
+// KYTY_PRESENT_SHARPNESS=<0..1> (default 0 = off): an unsharp mask in the presentation filter, which
+// the game's own image passes through on its way to the window. It sharpens what the emulator
+// presents (a game's TAA or a bilinear upscale) and works for every title; it costs one extra filter
+// pass at a 1:1 present and nothing when 0.
+static float PresentSharpness() {
+	static const float value = [] {
+		const auto* env = std::getenv("KYTY_PRESENT_SHARPNESS");
+		if (env == nullptr || env[0] == '\0') {
+			return 0.0f;
+		}
+		return std::clamp(static_cast<float>(std::strtod(env, nullptr)), 0.0f, 1.0f);
+	}();
+	return value;
+}
+
 void PresentFilter::Record(vk::Device device, vk::CommandBuffer command, vk::ImageView source_view,
                            uint32_t level, vk::Extent2D source, vk::ImageView target_view,
                            vk::Format target_format, vk::Extent2D target, bool pq_to_sdr) {
@@ -845,8 +860,9 @@ void PresentFilter::Record(vk::Device device, vk::CommandBuffer command, vk::Ima
 		uint32_t flags;
 		float    white_nits;
 		float    peak_nits;
+		float    sharpness; // KYTY_PRESENT_SHARPNESS, 0 = off
 	};
-	static_assert(sizeof(Constants) == 32);
+	static_assert(sizeof(Constants) == 36);
 	if (m_layout == nullptr) {
 		vk::SamplerCreateInfo sampler {};
 		sampler.magFilter    = vk::Filter::eLinear;
@@ -903,7 +919,8 @@ void PresentFilter::Record(vk::Device device, vk::CommandBuffer command, vk::Ima
 	    (pq_to_sdr ? 1u : 0u) |
 	        (source.width > 2ull * target.width || source.height > 2ull * target.height ? 2u : 0u),
 	    PqToSdrWhiteNits(),
-	    PqToSdrPeakNits()};
+	    PqToSdrPeakNits(),
+	    PresentSharpness()};
 	command.pushConstants(m_layout, vk::ShaderStageFlagBits::eFragment, 0, sizeof(constants),
 	                      &constants);
 	command.bindPipeline(vk::PipelineBindPoint::eGraphics, m_pipeline);
@@ -1101,10 +1118,13 @@ void Swapchain::RecordPresentCommands(CommandBuffer& command, Presenter::Frame* 
 	const vk::Extent2D source_extent =
 	    source != nullptr ? vk::Extent2D {source->image.extent.width, source->image.extent.height}
 	                      : vk::Extent2D {};
-	// An HDR10 frame on an SDR window is converted by the filter pass (KYTY_HDR_TO_SDR).
+	// An HDR10 frame on an SDR window is converted by the filter pass (KYTY_HDR_TO_SDR). A sharpness
+	// above 0 sends the frame through the same pass even at a 1:1 present, which is the only place a
+	// title's finished image can be sharpened without touching its shaders.
 	const bool pq_to_sdr = source != nullptr && source->hdr && !m_hdr_active && PqToSdrEnabled();
-	const bool filtered  = source != nullptr && (pq_to_sdr || (PresentBoxDownscaleEnabled() &&
-	                                                           PresentNeedsFilter(source_extent, m_extent)));
+	const bool filtered  = source != nullptr &&
+	                      (pq_to_sdr || PresentSharpness() > 0.0f ||
+	                       (PresentBoxDownscaleEnabled() && PresentNeedsFilter(source_extent, m_extent)));
 	if (filtered) {
 		if (source->view == nullptr) {
 			vk::ImageViewCreateInfo view {};

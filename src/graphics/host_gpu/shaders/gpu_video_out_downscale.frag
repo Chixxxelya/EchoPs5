@@ -16,6 +16,7 @@ layout(push_constant) uniform Downscale {
 	                  // linear tap per pixel, as a blit (a downscale beyond 2:1, which the box cannot cover)
 	float white_nits; // SDR reference white for the PQ conversion
 	float peak_nits;  // highlight luminance mapped to SDR white (soft shoulder)
+	float sharpness;  // KYTY_PRESENT_SHARPNESS, 0 = off: unsharp mask at the target's own resolution
 };
 
 // HDR10 -> SDR for a game that outputs PQ while the window is SDR: the ST 2084 EOTF, the
@@ -77,6 +78,20 @@ void main() {
 		        (textureLod(source, vec2(ax, by) * texel, lod) * wax +
 		         textureLod(source, vec2(bx, by) * texel, lod) * wbx) *
 		            wby;
+	}
+	// KYTY_PRESENT_SHARPNESS: an unsharp mask at the target's own resolution. The neighbours one
+	// target pixel away come from the same source level, so a 1:1 present (scale == 1) sharpens the
+	// game's own image and a downscale sharpens what this pass just produced. The mask is applied
+	// before the HDR conversion, so for a PQ frame it works on the source's encoding.
+	if (sharpness > 0.0) {
+		const vec2 step = scale * texel; // one target pixel in source UV
+		const vec2 uv   = gl_FragCoord.xy * texel;
+		const vec3 n    = textureLod(source, uv + vec2(0.0, -step.y), lod).rgb;
+		const vec3 s    = textureLod(source, uv + vec2(0.0, step.y), lod).rgb;
+		const vec3 w    = textureLod(source, uv + vec2(-step.x, 0.0), lod).rgb;
+		const vec3 e    = textureLod(source, uv + vec2(step.x, 0.0), lod).rgb;
+		const vec3 blur = (n + s + w + e) * 0.25;
+		color.rgb       = clamp(color.rgb + (color.rgb - blur) * sharpness, 0.0, 1.0);
 	}
 	if ((flags & 1u) != 0u) {
 		color.rgb = PqToSdr(color.rgb);

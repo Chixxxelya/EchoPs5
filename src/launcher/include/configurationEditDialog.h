@@ -55,6 +55,7 @@ private:
 	QSpinBox*                    m_perf_window     = nullptr;
 	QSpinBox*                    m_perf_hot        = nullptr;
 	QSpinBox*                    m_perf_merge      = nullptr;
+	QSpinBox*                    m_present_sharpness = nullptr;
 	bool                         m_global_settings        = false;
 	bool                         m_geometry_restored      = false;
 

@@ -260,6 +260,19 @@ int main() {
 		          applied.value(QStringLiteral("KYTY_DRAW_PREP_HOT")) == QStringLiteral("4") &&
 		          applied.value(QStringLiteral("KYTY_BDA_LIVE_MERGE_GAP_KB")) == QStringLiteral("32"),
 		      "the numeric switches are set");
+		// Presentation sharpness is independent of the switch list.
+		Check(!applied.contains(QStringLiteral("KYTY_PRESENT_SHARPNESS")), "sharpness off by default");
+		Configuration sharp;
+		sharp.present_sharpness = 35;
+		QProcessEnvironment sharp_env;
+		sharp.ApplyPerformanceProfile(sharp_env);
+		Check(sharp_env.value(QStringLiteral("KYTY_PRESENT_SHARPNESS")) == QStringLiteral("0.35"),
+		      "sharpness is passed as a 0..1 factor");
+		sharp.WriteSettings(&out);
+		out.sync();
+		Configuration sharp_back;
+		sharp_back.ReadSettings(&out);
+		Check(sharp_back.present_sharpness == 35, "sharpness survived the round trip");
 		QProcessEnvironment preset;
 		preset.insert(QStringLiteral("KYTY_GPU_HAZARD"), QStringLiteral("0"));
 		fast.ApplyPerformanceProfile(preset);

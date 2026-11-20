@@ -354,6 +354,23 @@ void ConfigurationEditDialog::InitPerformanceGroup() {
 	                     "the safe default; enable it only while measuring.")));
 	layout->addWidget(numbers);
 
+	// Image quality, not a speed switch: applied to every title's finished image.
+	auto* image_group = new QGroupBox(tr("Image"), m_ui->general_group);
+	auto* image_form  = new QFormLayout(image_group);
+	image_form->setContentsMargins(8, 8, 8, 8);
+	m_present_sharpness = new QSpinBox(image_group);
+	m_present_sharpness->setRange(0, 100);
+	m_present_sharpness->setSuffix(QStringLiteral(" %"));
+	m_present_sharpness->setSpecialValueText(tr("off"));
+	m_present_sharpness->setToolTip(
+	    tr("KYTY_PRESENT_SHARPNESS: an unsharp mask applied to the finished image on its way to the "
+	       "window, so it works for every game. It sharpens what the emulator presents (the game's own "
+	       "TAA or an upscale); it cannot add detail the game did not render. 0 is off."));
+	image_form->addRow(tr("Presentation sharpness:"), m_present_sharpness);
+	image_form->addRow(new QLabel(tr("Sharpens every game at present time. Costs one filter pass."),
+	                              image_group));
+	m_ui->generalLayout->addWidget(image_group);
+
 	auto* buttons = new QHBoxLayout();
 	auto* fast    = new QPushButton(tr("Fast (all)"), m_perf_group);
 	auto* none    = new QPushButton(tr("Default (none)"), m_perf_group);
@@ -566,6 +583,7 @@ void ConfigurationEditDialog::Init(const Configuration& info) {
 		m_perf_window->setValue(info.performance_prep_window);
 		m_perf_hot->setValue(info.performance_prep_hot);
 		m_perf_merge->setValue(info.performance_merge_gap_kb);
+		m_present_sharpness->setValue(info.present_sharpness);
 	}
 	// Partly checked: automatic (on unless the CPU is an AMD).
 	m_ui->checkBox_amd_cpu->setTristate(true);
@@ -839,6 +857,7 @@ static void UpdateInfo(Configuration& info, Ui::ConfigurationEditDialog& ui, boo
 		info.performance_prep_window     = m_perf_window->value();
 		info.performance_prep_hot        = m_perf_hot->value();
 		info.performance_merge_gap_kb    = m_perf_merge->value();
+		info.present_sharpness           = m_present_sharpness->value();
 	}
 	const auto amd_cpu             = ui.checkBox_amd_cpu->checkState();
 	info.amd_cpu_mode              = amd_cpu == Qt::Checked     ? QStringLiteral("on")
