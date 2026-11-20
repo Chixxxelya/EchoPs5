@@ -633,17 +633,36 @@ PFN_vkVoidFunction LoadVulkanFunction(const char* name, void* user_data) {
 // for the rest of the run instead of ending the process.
 std::atomic<bool> g_overlay_failed {false};
 
+// The name of a Vulkan result, so a failure in the overlay reads as a cause and not as a number.
+const char* VulkanResultName(VkResult result) {
+	switch (result) {
+		case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
+		case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
+		case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
+		case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
+		case VK_ERROR_MEMORY_MAP_FAILED: return "VK_ERROR_MEMORY_MAP_FAILED";
+		case VK_ERROR_LAYER_NOT_PRESENT: return "VK_ERROR_LAYER_NOT_PRESENT";
+		case VK_ERROR_EXTENSION_NOT_PRESENT: return "VK_ERROR_EXTENSION_NOT_PRESENT";
+		case VK_ERROR_FEATURE_NOT_PRESENT: return "VK_ERROR_FEATURE_NOT_PRESENT";
+		case VK_ERROR_INCOMPATIBLE_DRIVER: return "VK_ERROR_INCOMPATIBLE_DRIVER";
+		case VK_ERROR_TOO_MANY_OBJECTS: return "VK_ERROR_TOO_MANY_OBJECTS";
+		case VK_ERROR_FORMAT_NOT_SUPPORTED: return "VK_ERROR_FORMAT_NOT_SUPPORTED";
+		case VK_ERROR_OUT_OF_POOL_MEMORY: return "VK_ERROR_OUT_OF_POOL_MEMORY";
+		case VK_ERROR_INVALID_EXTERNAL_HANDLE: return "VK_ERROR_INVALID_EXTERNAL_HANDLE";
+		case VK_ERROR_SURFACE_LOST_KHR: return "VK_ERROR_SURFACE_LOST_KHR";
+		case VK_ERROR_OUT_OF_DATE_KHR: return "VK_ERROR_OUT_OF_DATE_KHR";
+		default: return "an unnamed VkResult";
+	}
+}
+
 void CheckVulkanResult(VkResult result) {
 	if (result == VK_SUCCESS) {
 		return;
 	}
-	// The number names the failure: -1 out of host memory, -2 out of device memory, -3 initialisation
-	// failed, -4 device lost, -8 fragmented pool, -9 out of pool memory, -12 out of date. Without it
-	// the message says only that some ImGui call failed.
 	std::fprintf(stderr,
-	             "System overlay: an ImGui Vulkan call failed with VkResult %d; the overlay is off for "
+	             "System overlay: an ImGui Vulkan call failed with %s (%d); the overlay is off for "
 	             "this run (KYTY_NO_SYSTEM_OVERLAY=1 silences it)\n",
-	             static_cast<int>(result));
+	             VulkanResultName(result), static_cast<int>(result));
 	std::fflush(stderr);
 	g_overlay_failed.store(true, std::memory_order_release);
 }
