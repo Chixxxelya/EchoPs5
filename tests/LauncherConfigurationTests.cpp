@@ -234,7 +234,7 @@ int main() {
 			all << QString::fromLatin1(entry.token);
 		}
 		Check(all.size() == 9, "nine switch groups");
-		fast.performance_switches     = all.join(u',');
+		fast.performance_switches     = all.join(QLatin1Char(','));
 		fast.performance_prep_window  = 64;
 		fast.performance_prep_hot     = 4;
 		fast.performance_merge_gap_kb = 32;
@@ -288,7 +288,7 @@ int main() {
 		legacy.setValue(QStringLiteral("performance_profile"), QStringLiteral("fast"));
 		Configuration migrated;
 		migrated.ReadSettings(&legacy);
-		Check(migrated.performance_switches == all.join(u','), "the old fast profile enables every switch");
+		Check(migrated.performance_switches == all.join(QLatin1Char(',')), "the old fast profile enables every switch");
 		Configuration bad_import;
 		Check(!bad_import.SetGameSettings(
 		          QJsonObject {{QStringLiteral("performance_switches"), QStringLiteral("turbo")}}, error),

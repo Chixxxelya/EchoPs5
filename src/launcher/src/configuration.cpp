@@ -191,7 +191,7 @@ const QList<QPair<QString, QString>>& Configuration::PerformanceSwitchVariables(
 }
 
 void Configuration::ApplyPerformanceProfile(QProcessEnvironment& environment) const {
-	for (const auto& token: performance_switches.split(u',', Qt::SkipEmptyParts)) {
+	for (const auto& token: performance_switches.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
 		for (const auto& [name, value]: PerformanceSwitchVariables(token.trimmed())) {
 			if (!environment.contains(name)) {
 				environment.insert(name, value);
@@ -260,7 +260,7 @@ void Configuration::ReadGameSettingsValues(const Settings& s) {
 			for (const auto& entry: PerformanceSwitches()) {
 				all << QString::fromLatin1(entry.token);
 			}
-			performance_switches = all.join(u',');
+			performance_switches = all.join(QLatin1Char(','));
 		}
 	}
 	{
@@ -269,13 +269,13 @@ void Configuration::ReadGameSettingsValues(const Settings& s) {
 			known << QString::fromLatin1(entry.token);
 		}
 		QStringList kept;
-		for (const auto& token: performance_switches.split(u',', Qt::SkipEmptyParts)) {
+		for (const auto& token: performance_switches.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
 			const auto trimmed = token.trimmed();
 			if (known.contains(trimmed) && !kept.contains(trimmed)) {
 				kept << trimmed;
 			}
 		}
-		performance_switches = kept.join(u',');
+		performance_switches = kept.join(QLatin1Char(','));
 	}
 	performance_prep_window  = std::clamp(s.value("performance_prep_window", 0).toInt(), 0, 1024);
 	performance_prep_hot     = std::clamp(s.value("performance_prep_hot", 0).toInt(), 0, 32);

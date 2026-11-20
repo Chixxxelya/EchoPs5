@@ -151,7 +151,19 @@ static void SetAudioMixVisible(Ui::ConfigurationEditDialog& ui, bool visible) {
 	}
 }
 
-static void UpdateInfo(Configuration& info, Ui::ConfigurationEditDialog& ui, bool global_settings);
+// The performance panel is built in code (InitPerformanceGroup), so it is not part of `ui`; the
+// reader takes it as one struct to keep the call sites short.
+struct PerformancePanel {
+	const QList<QCheckBox*>& checks;
+	const QList<QString>&    tokens;
+	QSpinBox*                window;
+	QSpinBox*                hot;
+	QSpinBox*                merge;
+	QSpinBox*                sharpness;
+};
+
+static void UpdateInfo(Configuration& info, Ui::ConfigurationEditDialog& ui, bool global_settings,
+                       const PerformancePanel& panel);
 
 // What the Recommended button sets, in the dialog's words: the checkbox texts of the settings
 // that are switched on, "name: value" for anything else.
@@ -231,7 +243,9 @@ ConfigurationEditDialog::ConfigurationEditDialog(Configuration& info, QWidget* p
 			Configuration current;
 			current.CopyEmulatorSettingsFrom(m_info);
 			current.CopyGlobalOnlySettingsFrom(m_info);
-			UpdateInfo(current, *m_ui, m_global_settings);
+			UpdateInfo(current, *m_ui, m_global_settings,
+			           {m_perf_checks, m_perf_tokens, m_perf_window, m_perf_hot, m_perf_merge,
+			            m_present_sharpness});
 			current.ApplyRecommendedGameSettings(m_info.title_id);
 			Init(current);
 		});
@@ -576,7 +590,7 @@ void ConfigurationEditDialog::Init(const Configuration& info) {
 	}
 	{
 		// The performance panel: the checkboxes come from the same table the environment applies.
-		const auto enabled = info.performance_switches.split(u',', Qt::SkipEmptyParts);
+		const auto enabled = info.performance_switches.split(QLatin1Char(','), Qt::SkipEmptyParts);
 		for (int i = 0; i < m_perf_checks.size() && i < m_perf_tokens.size(); ++i) {
 			m_perf_checks[i]->setChecked(enabled.contains(m_perf_tokens[i]));
 		}
@@ -793,7 +807,8 @@ void ConfigurationEditDialog::resizeEvent(QResizeEvent* event) {
 	g_last_geometry = saveGeometry();
 }
 
-static void UpdateInfo(Configuration& info, Ui::ConfigurationEditDialog& ui, bool global_settings) {
+static void UpdateInfo(Configuration& info, Ui::ConfigurationEditDialog& ui, bool global_settings,
+                       const PerformancePanel& panel) {
 	info.user_name = ui.lineEdit_user_name->text().trimmed();
 	info.user_id   = ui.spinBox_user_id->value();
 	info.audio_input_device = ui.comboBox_audio_input_device->currentData().toString();
@@ -848,16 +863,16 @@ static void UpdateInfo(Configuration& info, Ui::ConfigurationEditDialog& ui, boo
 	info.dlss_sharpness = ui.slider_dlss_sharpness->value();
 	{
 		QStringList tokens;
-		for (int i = 0; i < m_perf_checks.size() && i < m_perf_tokens.size(); ++i) {
-			if (m_perf_checks[i]->isChecked()) {
-				tokens << m_perf_tokens[i];
+		for (int i = 0; i < panel.checks.size() && i < panel.tokens.size(); ++i) {
+			if (panel.checks[i]->isChecked()) {
+				tokens << panel.tokens[i];
 			}
 		}
-		info.performance_switches        = tokens.join(u',');
-		info.performance_prep_window     = m_perf_window->value();
-		info.performance_prep_hot        = m_perf_hot->value();
-		info.performance_merge_gap_kb    = m_perf_merge->value();
-		info.present_sharpness           = m_present_sharpness->value();
+		info.performance_switches        = tokens.join(QLatin1Char(','));
+		info.performance_prep_window     = panel.window->value();
+		info.performance_prep_hot        = panel.hot->value();
+		info.performance_merge_gap_kb    = panel.merge->value();
+		info.present_sharpness           = panel.sharpness->value();
 	}
 	const auto amd_cpu             = ui.checkBox_amd_cpu->checkState();
 	info.amd_cpu_mode              = amd_cpu == Qt::Checked     ? QStringLiteral("on")
@@ -917,7 +932,9 @@ void ConfigurationEditDialog::save() {
 		return;
 	}
 
-	UpdateInfo(m_info, *m_ui, m_global_settings);
+	UpdateInfo(m_info, *m_ui, m_global_settings,
+	           {m_perf_checks, m_perf_tokens, m_perf_window, m_perf_hot, m_perf_merge,
+	            m_present_sharpness});
 
 	emit accept();
 }
