@@ -283,6 +283,7 @@ public:
 		performance_prep_window     = other.performance_prep_window;
 		performance_prep_hot        = other.performance_prep_hot;
 		performance_merge_gap_kb    = other.performance_merge_gap_kb;
+		present_sharpness           = other.present_sharpness;
 		amd_cpu_mode                = other.amd_cpu_mode;
 		guest_tsc_enabled           = other.guest_tsc_enabled;
 #if defined(_WIN32)
