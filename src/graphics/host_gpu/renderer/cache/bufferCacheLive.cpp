@@ -146,6 +146,24 @@ bool TimedCheck(std::atomic<uint64_t>& sink, Fn&& check) {
 	return result;
 }
 
+// TimedCheck is for predicates: it returns bool. A value that is not a predicate (a translated device
+// address, a size) must go through TimedValue, or the result is cut down to true/1 and every caller
+// that stores it stores a one.
+template <typename Fn>
+auto TimedValue(std::atomic<uint64_t>& sink, Fn&& value) -> decltype(value()) {
+	if (!LiveProfileEnabled()) {
+		return value();
+	}
+	const auto begin = std::chrono::steady_clock::now();
+	auto       result = value();
+	sink.fetch_add(static_cast<uint64_t>(
+	                   std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() -
+	                                                                      begin)
+	                       .count()),
+	               std::memory_order_relaxed);
+	return result;
+}
+
 constexpr uint64_t PAGE = BufferCache::CACHING_PAGESIZE;
 constexpr uint64_t SUBPAGES = PAGE / TRACKER_PAGE_SIZE;
 
@@ -541,12 +559,27 @@ void BufferCache::LiveSyncBufferRange(BufferId id, uint64_t start, uint64_t size
 							host = LibKernel::Memory::GuestBackingAlias(address, PAGE);
 							return host != nullptr;
 						});
-						const auto dev = TimedCheck(g_live_profile.window_ns, [&] {
+						const auto dev = TimedValue(g_live_profile.window_ns, [&] {
 							return host != nullptr
 							           ? live.windows->Translate(reinterpret_cast<uint64_t>(host), PAGE + 64)
 							           : 0;
 						});
-						if (dev == 0) {
+						// A redirect entry is a device address of an imported window: page-aligned and
+						// far above the tag bits. Anything else would point the guest's page table at
+						// nothing (a shader then reads address 0), so it is refused and said once.
+						const bool usable = dev != 0 && (dev & (PAGE - 1)) == 0;
+						if (dev != 0 && !usable) {
+							static std::atomic<uint32_t> bad_entry_logged {0};
+							if (bad_entry_logged.fetch_add(1, std::memory_order_relaxed) < 4u) {
+								std::fprintf(stderr,
+								             "BDA live: page 0x%llx translated to a misaligned entry 0x%llx; "
+								             "not redirecting it\n",
+								             static_cast<unsigned long long>(address),
+								             static_cast<unsigned long long>(dev));
+								std::fflush(stderr);
+							}
+						}
+						if (!usable) {
 							std::scoped_lock lock(live.mutex);
 							live.totals.rejects_window++;
 						} else {
