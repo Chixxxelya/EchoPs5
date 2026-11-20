@@ -95,6 +95,13 @@ uint64_t LiveEnvU64(const char* name, uint64_t fallback) {
 	return value != nullptr && value[0] != '\0' ? std::strtoull(value, nullptr, 0) : fallback;
 }
 
+// KYTY_BDA_LIVE_MERGE_GAP_KB (startup, default 0 = off): gaps between redirected pages shorter than
+// this are folded into the next synchronization instead of getting a call of their own.
+uint64_t LiveMergeGapBytes() {
+	static const uint64_t bytes = LiveEnvU64("KYTY_BDA_LIVE_MERGE_GAP_KB", 0) * 1024u;
+	return bytes;
+}
+
 // KYTY_BDA_LIVE_PROFILE=1 (diagnostic, default off, read once): per-check time of the redirect
 // qualification loop (LiveSyncBufferRange), accumulated since start and printed with the other
 // BdaLivePages totals every 10 s as "BdaLiveProfile". The loop runs ~126 times per frame on Ghost
@@ -121,6 +128,7 @@ struct LiveProfileCounters {
 	std::atomic<uint64_t> redirected {0};
 };
 LiveProfileCounters g_live_profile;
+std::atomic<uint64_t> g_live_merged {0}; // KYTY_BDA_LIVE_MERGE_GAP_KB: gaps folded so far
 
 // Runs one check, adding its time to `sink` when profiling is on. Short-circuit order of the callers
 // is unchanged: the callable runs at most once per call site and its result is returned as is.
@@ -408,6 +416,8 @@ void BufferCache::LiveSyncBufferRange(BufferId id, uint64_t start, uint64_t size
 	const auto first_page = start >> CACHING_PAGEBITS;
 	const auto last_page  = (end - 1) >> CACHING_PAGEBITS;
 	uint64_t   walked = 0, dirty = 0, segments = 0, bound = 0;
+	uint64_t   merged = 0; // KYTY_BDA_LIVE_MERGE_GAP_KB: gaps folded into the next synchronization
+	const auto merge_gap_bytes = LiveMergeGapBytes();
 	const auto account = [&](bool fast) {
 		const auto ns = static_cast<uint64_t>(
 		    std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count());
@@ -565,13 +575,28 @@ void BufferCache::LiveSyncBufferRange(BufferId id, uint64_t start, uint64_t size
 		const auto seg_begin = std::max(address, start);
 		const auto seg_end   = std::min(address + PAGE, end);
 		if (seg_begin > run) {
-			(void)SynchronizeBuffer(buffer, run, seg_begin - run, false, false, stats);
-			segments++;
+			// KYTY_BDA_LIVE_MERGE_GAP_KB: a gap shorter than the threshold is not synchronized on
+			// its own; `run` stays behind, so the next synchronization covers this gap and the
+			// page after it in one call. Uploading a redirected page's bytes is harmless (its
+			// page-table entry reads guest memory, not this copy), and a range split into 91
+			// segments per frame spends its time in the calls, not in the bytes.
+			const auto gap = seg_begin - run;
+			if (merge_gap_bytes == 0 || gap >= merge_gap_bytes) {
+				(void)SynchronizeBuffer(buffer, run, gap, false, false, stats);
+				segments++;
+				run = seg_end;
+			} else {
+				merged++;
+			}
+		} else {
+			run = seg_end;
 		}
-		run = seg_end;
 		if (!is_live) {
 			fresh.push_back({page, entry, mask});
 		}
+	}
+	if (merged != 0) {
+		g_live_merged.fetch_add(merged, std::memory_order_relaxed);
 	}
 	if (run < end) {
 		(void)SynchronizeBuffer(buffer, run, end - run, false, false, stats);
@@ -1182,6 +1207,12 @@ void BufferCache::ReportBdaLive() {
 		            g_live_profile.rejected.exchange(0, std::memory_order_relaxed), ms(g_live_profile.tag_ns),
 		            ms(g_live_profile.hot_ns), ms(g_live_profile.gpu_dirty_ns), ms(g_live_profile.publish_ns),
 		            ms(g_live_profile.texture_ns), ms(g_live_profile.alias_ns), ms(g_live_profile.window_ns));
+	}
+	// KYTY_BDA_LIVE_MERGE_GAP_KB: how many short gaps were folded into the next synchronization
+	// instead of getting their own call.
+	if (LiveMergeGapBytes() != 0) {
+		std::printf("BdaLiveMerge %.0fs: gaps folded %" PRIu64 "\n", elapsed,
+		            g_live_merged.exchange(0, std::memory_order_relaxed));
 	}
 	std::fflush(stdout);
 	live.report_time   = now;

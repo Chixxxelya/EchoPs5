@@ -178,6 +178,17 @@ has that trades correctness for frame time:
 | `KYTY_PIPELINE_SKIP_ORDER=1` | translation workers take the newest job first, so the pipeline the command processor waits for is built before the backlog |
 | `KYTY_MUTEX_HANDOFF_US=2000` | guest mutex starvation guard (Ratchet & Clank and GT7 presets use it): a thread that unlocks and re-locks in a loop cannot starve the others for seconds. Not an FPS switch, a stall switch |
 
+### Separate experiment: fold short synchronization gaps
+
+`KYTY_BDA_LIVE_MERGE_GAP_KB=<n>` (default 0 = off, startup) is not in any profile yet. It folds gaps
+shorter than n KiB between redirected pages into the next synchronization instead of giving each its
+own call: at Yotei's torii the walk produced 91 segments per frame, and the cost of that path was in
+the calls, not in the bytes. Uploading a redirected page's copy is harmless because its page-table
+entry reads guest memory. With it on, the console prints `BdaLiveMerge 10s: gaps folded <n>`.
+
+Measure it against the same profile without it, on the same route. It changes what is uploaded, so
+check the picture as well: a wrong result here looks like stale data in a BDA-read buffer.
+
 The three draw-prep switches are the multithreading knobs: what the commit thread cannot do in order is
 prepared ahead by workers. They help only when the commit thread waits for preparation — `CpGaps`
 (diagnostics build) shows that wait; if the commit thread is busy with its own work instead, these
