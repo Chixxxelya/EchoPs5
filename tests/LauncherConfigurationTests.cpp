@@ -216,50 +216,70 @@ int main() {
 		      "invalid DLSS quality accepted on import");
 	}
 
-	// The per-game performance profile: off by default, persisted, and only "fast" changes the
-	// environment (each switch where nothing else set it).
+	// The per-game performance switches: off by default, persisted, validated, and applied to the
+	// environment only where nothing else set the value.
 	{
 		Configuration defaults;
-		Check(defaults.performance_profile == QStringLiteral("shipped"), "the profile defaults to shipped");
+		Check(defaults.performance_switches.isEmpty() && defaults.performance_prep_window == 0 &&
+		          defaults.performance_prep_hot == 0 && defaults.performance_merge_gap_kb == 0,
+		      "performance switches default to off");
 		QProcessEnvironment environment;
 		environment.insert(QStringLiteral("KYTY_OTHER"), QStringLiteral("x"));
 		defaults.ApplyPerformanceProfile(environment);
-		Check(environment.keys().size() == 1, "shipped: the environment is unchanged");
+		Check(environment.keys().size() == 1, "no switches: the environment is unchanged");
 
 		Configuration fast;
-		fast.performance_profile = QStringLiteral("fast");
+		QStringList         all;
+		for (const auto& entry: Configuration::PerformanceSwitches()) {
+			all << QString::fromLatin1(entry.token);
+		}
+		Check(all.size() == 9, "nine switch groups");
+		fast.performance_switches     = all.join(u',');
+		fast.performance_prep_window  = 64;
+		fast.performance_prep_hot     = 4;
+		fast.performance_merge_gap_kb = 32;
 		QSettings out(dir.filePath(QStringLiteral("profile.ini")), QSettings::IniFormat);
 		fast.WriteSettings(&out);
 		out.sync();
 		Configuration back;
 		back.ReadSettings(&out);
-		Check(back.performance_profile == QStringLiteral("fast"), "the profile did not survive the round trip");
+		Check(back.performance_switches == fast.performance_switches && back.performance_prep_window == 64 &&
+		          back.performance_prep_hot == 4 && back.performance_merge_gap_kb == 32,
+		      "performance switches did not survive the round trip");
 		Configuration copied;
 		copied.CopyEmulatorSettingsFrom(fast);
-		Check(copied.performance_profile == QStringLiteral("fast"), "CopyEmulatorSettingsFrom dropped the profile");
+		Check(copied.performance_switches == fast.performance_switches && copied.performance_prep_window == 64,
+		      "CopyEmulatorSettingsFrom dropped the performance switches");
 
-		fast.ApplyPerformanceProfile(environment);
-		const auto& variables = Configuration::PerformanceProfileVariables();
-		Check(variables.size() == 18, "eighteen switches in the fast profile");
-		for (const auto& [key, value]: variables) {
-			Check(environment.value(key) == value, "fast: every switch is set");
+		QProcessEnvironment applied;
+		fast.ApplyPerformanceProfile(applied);
+		for (const auto& [name, value]: Configuration::PerformanceSwitchVariables(QStringLiteral("texel"))) {
+			Check(applied.value(name) == value, "texel: every switch is set");
 		}
-		// A preset or the user wins over the profile.
+		Check(applied.value(QStringLiteral("KYTY_DRAW_PREP_WINDOW")) == QStringLiteral("64") &&
+		          applied.value(QStringLiteral("KYTY_DRAW_PREP_HOT")) == QStringLiteral("4") &&
+		          applied.value(QStringLiteral("KYTY_BDA_LIVE_MERGE_GAP_KB")) == QStringLiteral("32"),
+		      "the numeric switches are set");
 		QProcessEnvironment preset;
 		preset.insert(QStringLiteral("KYTY_GPU_HAZARD"), QStringLiteral("0"));
 		fast.ApplyPerformanceProfile(preset);
 		Check(preset.value(QStringLiteral("KYTY_GPU_HAZARD")) == QStringLiteral("0"), "a preset's value wins");
-		Check(preset.value(QStringLiteral("KYTY_DRAW_PREP_WINDOW")) == QStringLiteral("64"),
-		      "the switches the preset leaves alone are added");
 
-		out.setValue(QStringLiteral("performance_profile"), QStringLiteral("turbo"));
-		Configuration broken;
-		broken.ReadSettings(&out);
-		Check(broken.performance_profile == QStringLiteral("shipped"), "an unknown profile becomes shipped");
+		// Unknown tokens are dropped on read; an old config that only had performance_profile=fast
+		// still enables everything.
+		out.setValue(QStringLiteral("performance_switches"), QStringLiteral("texel,turbo,texel"));
+		Configuration cleaned;
+		cleaned.ReadSettings(&out);
+		Check(cleaned.performance_switches == QStringLiteral("texel"), "unknown and repeated tokens are dropped");
+		QSettings legacy(dir.filePath(QStringLiteral("legacy.ini")), QSettings::IniFormat);
+		legacy.setValue(QStringLiteral("performance_profile"), QStringLiteral("fast"));
+		Configuration migrated;
+		migrated.ReadSettings(&legacy);
+		Check(migrated.performance_switches == all.join(u','), "the old fast profile enables every switch");
 		Configuration bad_import;
 		Check(!bad_import.SetGameSettings(
-		          QJsonObject {{QStringLiteral("performance_profile"), QStringLiteral("turbo")}}, error),
-		      "invalid profile accepted on import");
+		          QJsonObject {{QStringLiteral("performance_switches"), QStringLiteral("turbo")}}, error),
+		      "invalid switch token accepted on import");
 	}
 
 	Check(Configuration::ShaderOptimizationTypeFromText(QStringLiteral("None")) ==

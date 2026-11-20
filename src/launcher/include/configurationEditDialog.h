@@ -2,14 +2,17 @@
 #define CONFIGURATION_EDIT_DIALOG_H
 
 #include <QDialog>
+#include <QList>
 #include <QString>
 #include <QStringList>
 class QByteArray;
+class QCheckBox;
 class QGroupBox;
 class QLineEdit;
 class QListWidget;
 class QMoveEvent;
 class QResizeEvent;
+class QSpinBox;
 class QToolButton;
 class QSettings;
 class QWidget;
@@ -45,11 +48,19 @@ private:
 	QListWidget*                 m_game_dirs_list         = nullptr;
 	QLineEdit*                   m_addons_dir_edit        = nullptr;
 	QToolButton*                 m_remove_game_dir_button = nullptr;
+	// The performance panel: one checkbox per switch group, three numeric switches.
+	QGroupBox*                   m_perf_group      = nullptr;
+	QList<QString>               m_perf_tokens;
+	QList<QCheckBox*>            m_perf_checks;
+	QSpinBox*                    m_perf_window     = nullptr;
+	QSpinBox*                    m_perf_hot        = nullptr;
+	QSpinBox*                    m_perf_merge      = nullptr;
 	bool                         m_global_settings        = false;
 	bool                         m_geometry_restored      = false;
 
 protected:
 	void Init(const Configuration& info);
+	void InitPerformanceGroup();
 	void InitGameDirectories();
 	void AddGameDirectoryItem(const QString& dir);
 	void MakeTabsScrollable();

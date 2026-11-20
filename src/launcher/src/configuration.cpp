@@ -65,7 +65,10 @@ QVariantMap Configuration::GameSettings() const {
 	KYTY_CFG_SET(relaxed_shader_float);
 	KYTY_CFG_SET(fast_gpu_sync);
 	KYTY_CFG_SET(shader_cache_enabled);
-	KYTY_CFG_SET(performance_profile);
+	KYTY_CFG_SET(performance_switches);
+	KYTY_CFG_SET(performance_prep_window);
+	KYTY_CFG_SET(performance_prep_hot);
+	KYTY_CFG_SET(performance_merge_gap_kb);
 	KYTY_CFG_SET(trophy_enabled);
 	KYTY_CFG_SET(trophy_duration_seconds);
 	KYTY_CFG_SET(perf_overlay_enabled);
@@ -121,57 +124,88 @@ void Configuration::ApplyFastGpuSync(QProcessEnvironment& environment) const {
 	}
 }
 
-const QList<QPair<QString, QString>>& Configuration::PerformanceProfileVariables() {
-	// The switches the "fast" profile of tools/presets adds to the bundled preset: only what is not
-	// already a global preset value, and only what the emulator reads as a live switch, so a game
-	// that looks wrong recovers when the profile goes back to "shipped".
-	static const QList<QPair<QString, QString>> variables {
-	    // The same four as "faster GPU synchronisation": fewer barriers.
-	    {QStringLiteral("KYTY_GPU_HAZARD"), QStringLiteral("3")},
-	    {QStringLiteral("KYTY_INDIRECT_ARGS_RANGES"), QStringLiteral("1")},
-	    {QStringLiteral("KYTY_GUEST_BARRIER_SCOPE"), QStringLiteral("rel=drop")},
-	    {QStringLiteral("KYTY_DMA_BARRIER_BATCH"), QStringLiteral("1")},
-	    // Occlusion results of skipped draws are biased instead of waited for.
-	    {QStringLiteral("KYTY_SKIP_OCCLUSION_VISIBLE"), QStringLiteral("1")},
-	    // A draw whose only "write" is the fault buffer may be skipped while its pipeline builds...
-	    {QStringLiteral("KYTY_PIPELINE_SKIP_FAULT_BUFFER"), QStringLiteral("1")},
-	    // ...and may continue the previous draw's run.
-	    {QStringLiteral("KYTY_DRAW_RUN_FAULT_BUFFER"), QStringLiteral("1")},
-	    // Prepare further ahead, with more workers spinning and stealing.
-	    {QStringLiteral("KYTY_DRAW_PREP_WINDOW"), QStringLiteral("64")},
-	    {QStringLiteral("KYTY_DRAW_PREP_HOT"), QStringLiteral("4")},
-	    {QStringLiteral("KYTY_DRAW_PREP_STEAL"), QStringLiteral("1")},
-	    // The commit thread's per-draw bookkeeping reduced to runs (drawPrep/bookkeep.h, tested in
-	    // BookkeepTests): one ready check per run of prepared slots instead of per draw, stage
-	    // preparations adopted by pointer, a continuation's record update cut to its descriptor
-	    // epoch, and the rendering state used by reference.
-	    {QStringLiteral("KYTY_BK_HANDOVER"), QStringLiteral("1")},
-	    {QStringLiteral("KYTY_BK_ADOPT"), QStringLiteral("1")},
-	    {QStringLiteral("KYTY_BK_RECORD"), QStringLiteral("1")},
-	    {QStringLiteral("KYTY_BK_LEAN"), QStringLiteral("1")},
-	    // Formatted (texel) read bindings take the lock-free "nothing to upload" test and the read
-	    // memo (bufferCache.cpp documents 15.5 us -> 0.6 us per binding on Miles Morales).
-	    {QStringLiteral("KYTY_TEXEL_RELAXED_SYNC"), QStringLiteral("2")},
-	    // Cheaper draw preparations with unchanged outputs (drawPrep/lean.h): the shader code digest
-	    // once per code instead of per prepared stage, merged read sets, two claims per update.
-	    {QStringLiteral("KYTY_DRAW_PREP_LEAN"), QStringLiteral("all")},
-	    // The translation workers take the newest job first, so the pipeline the command processor
-	    // waits for is built before the backlog.
-	    {QStringLiteral("KYTY_PIPELINE_SKIP_ORDER"), QStringLiteral("1")},
-	    // Guest mutex starvation guard: a thread that unlocks and re-locks in a loop (Wwise's audio
-	    // thread when audio runs behind) cannot starve the others for seconds.
-	    {QStringLiteral("KYTY_MUTEX_HANDOFF_US"), QStringLiteral("2000")},
+const std::vector<Configuration::PerformanceSwitch>& Configuration::PerformanceSwitches() {
+	static const std::vector<PerformanceSwitch> switches {
+	    {"barriers", "Fewer GPU barriers",
+	     "Drops redundant barriers between GPU work (KYTY_GPU_HAZARD=3, KYTY_INDIRECT_ARGS_RANGES=1, "
+	     "KYTY_GUEST_BARRIER_SCOPE=rel=drop, KYTY_DMA_BARRIER_BATCH=1). About 1 fps in heavy scenes; "
+	     "turn it off if graphics glitch."},
+	    {"skipfault", "Skip draws while their pipeline builds",
+	     "A draw whose only write is the fault buffer may be skipped while its pipeline compiles "
+	     "(KYTY_PIPELINE_SKIP_FAULT_BUFFER=1). It loses only that report; the next draw reports the "
+	     "pages again."},
+	    {"drawrun", "Continue draw runs across the fault buffer",
+	     "Lets such a draw continue the previous draw's run instead of a full commit "
+	     "(KYTY_DRAW_RUN_FAULT_BUFFER=1). Faster; a wrong result looks like a missing buffer update."},
+	    {"occlusion", "Bias occlusion instead of waiting",
+	     "Occlusion results of skipped draws are biased rather than waited for "
+	     "(KYTY_SKIP_OCCLUSION_VISIBLE=1). Can cull wrongly for a frame."},
+	    {"bookkeep", "Reduce per-draw bookkeeping",
+	     "The command processor's per-draw bookkeeping as runs (KYTY_BK_HANDOVER/ADOPT/RECORD/LEAN=1): "
+	     "one ready check per run of prepared slots, preparations adopted by pointer, a smaller "
+	     "record update. Covered by BookkeepTests."},
+	    {"texel", "Fast texel read bindings",
+	     "Formatted (texel) reads take the lock-free check and the read memo "
+	     "(KYTY_TEXEL_RELAXED_SYNC=2). Documented 15.5 us -> 0.6 us per binding on Miles Morales."},
+	    {"lean", "Economical draw preparation",
+	     "Cheaper preparations with unchanged outputs (KYTY_DRAW_PREP_LEAN=all): a shader's code "
+	     "digest once instead of per prepared stage, merged read sets, two claims per update."},
+	    {"skiporder", "Build the newest pipeline first",
+	     "Translation workers take the newest job first (KYTY_PIPELINE_SKIP_ORDER=1), so the pipeline "
+	     "the command processor waits for is built before the backlog."},
+	    {"mutex", "Guest mutex hand-off",
+	     "Starvation guard for guest mutexes (KYTY_MUTEX_HANDOFF_US=2000): a thread that unlocks and "
+	     "re-locks in a loop cannot block the others for seconds. Prevents freezes, not a speed-up."},
 	};
-	return variables;
+	return switches;
+}
+
+const QList<QPair<QString, QString>>& Configuration::PerformanceSwitchVariables(const QString& token) {
+	static const QList<std::pair<QString, QList<QPair<QString, QString>>>> table {
+	    {"barriers",
+	     {{QStringLiteral("KYTY_GPU_HAZARD"), QStringLiteral("3")},
+	      {QStringLiteral("KYTY_INDIRECT_ARGS_RANGES"), QStringLiteral("1")},
+	      {QStringLiteral("KYTY_GUEST_BARRIER_SCOPE"), QStringLiteral("rel=drop")},
+	      {QStringLiteral("KYTY_DMA_BARRIER_BATCH"), QStringLiteral("1")}}},
+	    {"skipfault", {{QStringLiteral("KYTY_PIPELINE_SKIP_FAULT_BUFFER"), QStringLiteral("1")}}},
+	    {"drawrun", {{QStringLiteral("KYTY_DRAW_RUN_FAULT_BUFFER"), QStringLiteral("1")}}},
+	    {"occlusion", {{QStringLiteral("KYTY_SKIP_OCCLUSION_VISIBLE"), QStringLiteral("1")}}},
+	    {"bookkeep",
+	     {{QStringLiteral("KYTY_BK_HANDOVER"), QStringLiteral("1")},
+	      {QStringLiteral("KYTY_BK_ADOPT"), QStringLiteral("1")},
+	      {QStringLiteral("KYTY_BK_RECORD"), QStringLiteral("1")},
+	      {QStringLiteral("KYTY_BK_LEAN"), QStringLiteral("1")}}},
+	    {"texel", {{QStringLiteral("KYTY_TEXEL_RELAXED_SYNC"), QStringLiteral("2")}}},
+	    {"lean", {{QStringLiteral("KYTY_DRAW_PREP_LEAN"), QStringLiteral("all")}}},
+	    {"skiporder", {{QStringLiteral("KYTY_PIPELINE_SKIP_ORDER"), QStringLiteral("1")}}},
+	    {"mutex", {{QStringLiteral("KYTY_MUTEX_HANDOFF_US"), QStringLiteral("2000")}}},
+	};
+	static const QList<QPair<QString, QString>> empty;
+	for (const auto& [name, variables]: table) {
+		if (name == token) {
+			return variables;
+		}
+	}
+	return empty;
 }
 
 void Configuration::ApplyPerformanceProfile(QProcessEnvironment& environment) const {
-	if (performance_profile != QStringLiteral("fast")) {
-		return;
+	for (const auto& token: performance_switches.split(u',', Qt::SkipEmptyParts)) {
+		for (const auto& [name, value]: PerformanceSwitchVariables(token.trimmed())) {
+			if (!environment.contains(name)) {
+				environment.insert(name, value);
+			}
+		}
 	}
-	for (const auto& [name, value]: PerformanceProfileVariables()) {
-		if (!environment.contains(name)) {
-			environment.insert(name, value);
+	// The numeric switches: 0 leaves whatever the preset says.
+	const std::pair<QString, int> numeric[] {
+	    {QStringLiteral("KYTY_DRAW_PREP_WINDOW"), performance_prep_window},
+	    {QStringLiteral("KYTY_DRAW_PREP_HOT"), performance_prep_hot},
+	    {QStringLiteral("KYTY_BDA_LIVE_MERGE_GAP_KB"), performance_merge_gap_kb},
+	};
+	for (const auto& [name, value]: numeric) {
+		if (value > 0 && !environment.contains(name)) {
+			environment.insert(name, QString::number(value));
 		}
 	}
 }
@@ -209,10 +243,36 @@ void Configuration::ReadGameSettingsValues(const Settings& s) {
 	gpu_occlusion_accurate = s.value("gpu_occlusion_accurate", gpu_occlusion_accurate).toBool();
 	KYTY_CFG_GET(relaxed_shader_float);
 	fast_gpu_sync        = s.value("fast_gpu_sync", false).toBool();
-	performance_profile  = s.value("performance_profile", performance_profile).toString();
-	if (performance_profile != QStringLiteral("fast")) {
-		performance_profile = QStringLiteral("shipped");
+	// The per-game performance switches: unknown tokens are dropped, so a hand-edited config cannot
+	// ask for a switch this build does not have. A config saved while the profile was one text value
+	// ("fast") enables all of them.
+	performance_switches = s.value("performance_switches", performance_switches).toString();
+	if (performance_switches.isEmpty() && s.contains("performance_profile")) {
+		if (s.value("performance_profile").toString() == QStringLiteral("fast")) {
+			QStringList all;
+			for (const auto& entry: PerformanceSwitches()) {
+				all << QString::fromLatin1(entry.token);
+			}
+			performance_switches = all.join(u',');
+		}
 	}
+	{
+		QStringList known;
+		for (const auto& entry: PerformanceSwitches()) {
+			known << QString::fromLatin1(entry.token);
+		}
+		QStringList kept;
+		for (const auto& token: performance_switches.split(u',', Qt::SkipEmptyParts)) {
+			const auto trimmed = token.trimmed();
+			if (known.contains(trimmed) && !kept.contains(trimmed)) {
+				kept << trimmed;
+			}
+		}
+		performance_switches = kept.join(u',');
+	}
+	performance_prep_window  = std::clamp(s.value("performance_prep_window", 0).toInt(), 0, 1024);
+	performance_prep_hot     = std::clamp(s.value("performance_prep_hot", 0).toInt(), 0, 32);
+	performance_merge_gap_kb = std::clamp(s.value("performance_merge_gap_kb", 0).toInt(), 0, 4096);
 	shader_cache_enabled = s.value("shader_cache_enabled", shader_cache_enabled).toBool();
 	trophy_enabled       = s.value("trophy_enabled", trophy_enabled).toBool();
 	KYTY_CFG_GET(trophy_duration_seconds);

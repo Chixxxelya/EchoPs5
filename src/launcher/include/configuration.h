@@ -18,6 +18,7 @@
 #include <QStringList>
 #include <QVariant>
 
+#include <vector>
 template <class T>
 inline QStringList EnumToList() {
 	QStringList ret;
@@ -194,10 +195,6 @@ public:
 	// "Faster GPU synchronisation (experimental)", per game (key fast_gpu_sync): the game starts
 	// with FastGpuSyncVariables() (ApplyFastGpuSync).
 	bool                   fast_gpu_sync               = false;
-	// "Performance profile", per game (key performance_profile): "shipped" or "fast"
-	// (ApplyPerformanceProfile). Kept as text like amd_cpu_mode, so an old or hand-edited config
-	// cannot load an invalid enum.
-	QString                performance_profile          = QStringLiteral("shipped");
 	bool                   shader_cache_enabled        = true;
 	bool                   trophy_enabled              = true;
 	int                    trophy_duration_seconds     = 6;
@@ -282,7 +279,10 @@ public:
 		dlss_quality                = other.dlss_quality;
 		dlss_preset                 = other.dlss_preset;
 		dlss_sharpness              = other.dlss_sharpness;
-		performance_profile         = other.performance_profile;
+		performance_switches        = other.performance_switches;
+		performance_prep_window     = other.performance_prep_window;
+		performance_prep_hot        = other.performance_prep_hot;
+		performance_merge_gap_kb    = other.performance_merge_gap_kb;
 		amd_cpu_mode                = other.amd_cpu_mode;
 		guest_tsc_enabled           = other.guest_tsc_enabled;
 #if defined(_WIN32)
@@ -317,10 +317,26 @@ public:
 	// nothing changes.
 	void ApplyFastGpuSync(QProcessEnvironment& environment) const;
 
-	// "shipped" keeps the released behaviour; "fast" adds PerformanceProfileVariables() on top of
-	// everything the presets set. Both live per game (key performance_profile) and are live switches
-	// of the emulator, so a wrong picture is fixed by turning the profile off, not by a rebuild.
-	[[nodiscard]] static const QList<QPair<QString, QString>>& PerformanceProfileVariables();
+	// One emulator switch group the dialog shows as a checkbox: the token stored in the config, the
+	// label, and what it trades.
+	struct PerformanceSwitch {
+		const char* token;
+		const char* label;
+		const char* tooltip;
+	};
+	// The switch groups the dialog offers, in display order; "fast" selects all of them.
+	[[nodiscard]] static const std::vector<PerformanceSwitch>& PerformanceSwitches();
+	// The emulator variables of one token (empty for an unknown token).
+	[[nodiscard]] static const QList<QPair<QString, QString>>& PerformanceSwitchVariables(const QString& token);
+
+	// Per game: the switch tokens that are on, plus the three numeric switches (0 = leave the
+	// preset's value). ApplyPerformanceProfile adds them to the process environment; a value the
+	// presets or the user's environment already sets wins, so a wrong picture is fixed by turning
+	// the switch off, not by a rebuild.
+	QString                performance_switches;
+	int                    performance_prep_window  = 0;
+	int                    performance_prep_hot     = 0;
+	int                    performance_merge_gap_kb = 0;
 	void ApplyPerformanceProfile(QProcessEnvironment& environment) const;	// Call on a temporary configuration: validation can fail after loading values.
 	bool SetGameSettings(const QJsonObject& settings, QString& error);
 

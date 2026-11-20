@@ -160,6 +160,14 @@ or rendering. Restore the preset afterwards if it regresses.
 
 ## Picture-forbidden profile (`fast`)
 
+The launcher has the same switches in the game dialog: **Edit game config… → General →
+Performance switches**. Nine checkboxes (barriers, pipeline skips, draw-run, occlusion, per-draw
+bookkeeping, texel reads, lean preparation, newest-first pipelines, mutex hand-off) with a tooltip
+each, three numeric fields (draw-preparation window, spinning workers, live-page merge gap) and two
+buttons: **Fast (all)** and **Default (none)**. They are stored per game (`performance_switches`,
+`performance_prep_window`, `performance_prep_hot`, `performance_merge_gap_kb`) and applied to the
+game's environment; a value the presets or your environment sets wins.
+
 `tools\presets\u59-preset.PPSA26344.fast.json` is the shipped Yotei preset plus every switch this fork
 has that trades correctness for frame time:
 

@@ -291,6 +291,7 @@ ConfigurationEditDialog::ConfigurationEditDialog(Configuration& info, QWidget* p
 
 	setSizeGripEnabled(true);
 
+	InitPerformanceGroup();
 	Init(info);
 	m_geometry_restored = restoreGeometry(g_last_geometry);
 	if (!m_geometry_restored) {
@@ -299,6 +300,86 @@ ConfigurationEditDialog::ConfigurationEditDialog(Configuration& info, QWidget* p
 }
 
 QByteArray ConfigurationEditDialog::g_last_geometry;
+
+// The performance panel: one checkbox per switch group of Configuration::PerformanceSwitches(), the
+// three numeric switches, and the two shortcuts a player actually uses ("Fast (all)" / "Default").
+// Built in code rather than in the .ui: the list comes from the same table ApplyPerformanceProfile
+// uses, so the dialog cannot drift from the switches the emulator reads.
+void ConfigurationEditDialog::InitPerformanceGroup() {
+	m_perf_group = new QGroupBox(tr("Performance switches"), m_ui->general_group);
+	auto* layout = new QVBoxLayout(m_perf_group);
+	layout->setContentsMargins(8, 8, 8, 8);
+	layout->setSpacing(4);
+
+	auto* hint = new QLabel(tr("Each switch is added to the game's environment on top of the presets. "
+	                           "A value the preset or your environment sets wins. Turn a switch off if "
+	                           "the picture or the pacing gets worse: they trade correctness for speed."),
+	                        m_perf_group);
+	hint->setWordWrap(true);
+	hint->setStyleSheet(QStringLiteral("QLabel { color: #808080; }"));
+	layout->addWidget(hint);
+
+	for (const auto& entry: Configuration::PerformanceSwitches()) {
+		auto* check = new QCheckBox(tr(entry.label), m_perf_group);
+		check->setToolTip(tr(entry.tooltip));
+		layout->addWidget(check);
+		m_perf_checks.append(check);
+		m_perf_tokens.append(QString::fromLatin1(entry.token));
+	}
+
+	auto* numbers = new QWidget(m_perf_group);
+	auto* form    = new QFormLayout(numbers);
+	form->setContentsMargins(0, 6, 0, 0);
+	const auto spin = [&](QSpinBox*& box, int minimum, int maximum, const QString& suffix,
+	                      const QString& tip) {
+		box = new QSpinBox(numbers);
+		box->setRange(minimum, maximum);
+		box->setSuffix(suffix);
+		box->setSpecialValueText(tr("preset default"));
+		box->setToolTip(tip);
+		return box;
+	};
+	form->addRow(tr("Draw preparation window:"),
+	             spin(m_perf_window, 0, 1024, {},
+	                  tr("KYTY_DRAW_PREP_WINDOW: how many draws are prepared ahead. 0 keeps the preset "
+	                     "value (32). Higher values resolve more draws in parallel and keep more memory live.")));
+	form->addRow(tr("Spinning draw-prep workers:"),
+	             spin(m_perf_hot, 0, 32, {},
+	                  tr("KYTY_DRAW_PREP_HOT: how many preparation workers stay hot instead of parking. "
+	                     "0 keeps the preset value. Too many take CPU from the game's own threads.")));
+	form->addRow(tr("Merge live-page gaps:"),
+	             spin(m_perf_merge, 0, 4096, tr(" KiB"),
+	                  tr("KYTY_BDA_LIVE_MERGE_GAP_KB: gaps shorter than this between redirected pages are "
+	                     "folded into the next synchronization instead of a call each. 0 is off. Off is "
+	                     "the safe default; enable it only while measuring.")));
+	layout->addWidget(numbers);
+
+	auto* buttons = new QHBoxLayout();
+	auto* fast    = new QPushButton(tr("Fast (all)"), m_perf_group);
+	auto* none    = new QPushButton(tr("Default (none)"), m_perf_group);
+	fast->setToolTip(tr("Turn every switch on and set the draw-preparation values the fast profile uses."));
+	none->setToolTip(tr("Turn every switch off and leave the numeric values to the presets."));
+	buttons->addWidget(fast);
+	buttons->addWidget(none);
+	buttons->addStretch(1);
+	layout->addLayout(buttons);
+	connect(fast, &QPushButton::clicked, this, [this] {
+		for (auto* check: m_perf_checks) {
+			check->setChecked(true);
+		}
+		m_perf_window->setValue(64);
+		m_perf_hot->setValue(4);
+	});
+	connect(none, &QPushButton::clicked, this, [this] {
+		for (auto* check: m_perf_checks) {
+			check->setChecked(false);
+		}
+		m_perf_window->setValue(0);
+		m_perf_hot->setValue(0);
+	});
+
+	m_ui->generalLayout->addWidget(m_perf_group);
+}
 
 ConfigurationEditDialog::~ConfigurationEditDialog() {
 	delete m_ui;
@@ -477,14 +558,14 @@ void ConfigurationEditDialog::Init(const Configuration& info) {
 		    info.dlss_preset >= 0 && info.dlss_preset <= 15 ? info.dlss_preset : 0);
 	}
 	{
-		// Performance profile: the combo's data is the value saved in the config.
-		m_ui->comboBox_performance_profile->clear();
-		m_ui->comboBox_performance_profile->addItem(tr("Shipped (released settings)"),
-		                                            QStringLiteral("shipped"));
-		m_ui->comboBox_performance_profile->addItem(tr("Fast (fewer barriers, skips, more workers)"),
-		                                            QStringLiteral("fast"));
-		const int chosen = m_ui->comboBox_performance_profile->findData(info.performance_profile);
-		m_ui->comboBox_performance_profile->setCurrentIndex(chosen >= 0 ? chosen : 0);
+		// The performance panel: the checkboxes come from the same table the environment applies.
+		const auto enabled = info.performance_switches.split(u',', Qt::SkipEmptyParts);
+		for (int i = 0; i < m_perf_checks.size() && i < m_perf_tokens.size(); ++i) {
+			m_perf_checks[i]->setChecked(enabled.contains(m_perf_tokens[i]));
+		}
+		m_perf_window->setValue(info.performance_prep_window);
+		m_perf_hot->setValue(info.performance_prep_hot);
+		m_perf_merge->setValue(info.performance_merge_gap_kb);
 	}
 	// Partly checked: automatic (on unless the CPU is an AMD).
 	m_ui->checkBox_amd_cpu->setTristate(true);
@@ -747,8 +828,18 @@ static void UpdateInfo(Configuration& info, Ui::ConfigurationEditDialog& ui, boo
 	info.dlss_quality  = quality.isEmpty() ? QStringLiteral("auto") : quality;
 	info.dlss_preset   = ui.comboBox_dlss_preset->currentData().toInt();
 	info.dlss_sharpness = ui.slider_dlss_sharpness->value();
-	const auto profile = ui.comboBox_performance_profile->currentData().toString();
-	info.performance_profile = profile.isEmpty() ? QStringLiteral("shipped") : profile;
+	{
+		QStringList tokens;
+		for (int i = 0; i < m_perf_checks.size() && i < m_perf_tokens.size(); ++i) {
+			if (m_perf_checks[i]->isChecked()) {
+				tokens << m_perf_tokens[i];
+			}
+		}
+		info.performance_switches        = tokens.join(u',');
+		info.performance_prep_window     = m_perf_window->value();
+		info.performance_prep_hot        = m_perf_hot->value();
+		info.performance_merge_gap_kb    = m_perf_merge->value();
+	}
 	const auto amd_cpu             = ui.checkBox_amd_cpu->checkState();
 	info.amd_cpu_mode              = amd_cpu == Qt::Checked     ? QStringLiteral("on")
 	                                 : amd_cpu == Qt::Unchecked ? QStringLiteral("off")
