@@ -28,6 +28,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <fmt/format.h>
@@ -627,7 +629,27 @@ PFN_vkVoidFunction LoadVulkanFunction(const char* name, void* user_data) {
 }
 
 void CheckVulkanResult(VkResult result) {
+	if (result == VK_SUCCESS) {
+		return;
+	}
+	// The number names the failure: -1 out of host memory, -2 out of device memory, -3 initialisation
+	// failed, -4 device lost, -8 fragmented pool, -9 out of pool memory, -12 out of date. Without it
+	// the message says only that some ImGui call failed.
+	std::fprintf(stderr, "System overlay: an ImGui Vulkan call failed with VkResult %d\n",
+	             static_cast<int>(result));
+	std::fflush(stderr);
 	EXIT_IF(result != VK_SUCCESS);
+}
+
+// KYTY_NO_SYSTEM_OVERLAY=1 (startup, default off): skip the ImGui overlay entirely (splash, trophy
+// toasts, performance overlay, IME). A machine where its pipeline cannot be created still plays, and
+// an overlay failure stops hiding the rest of the emulator.
+bool SystemOverlayDisabled() {
+	static const bool disabled = [] {
+		const auto* env = std::getenv("KYTY_NO_SYSTEM_OVERLAY");
+		return env != nullptr && env[0] != '\0' && env[0] != '0';
+	}();
+	return disabled;
 }
 
 } // namespace
@@ -1797,6 +1819,12 @@ struct SystemOverlay::Impl {
 	}
 
 	bool PrepareFrame(vk::Extent2D frame_extent, vk::Format format, uint32_t image_count) {
+		// KYTY_NO_SYSTEM_OVERLAY=1: the ImGui overlay (splash, trophy toasts, performance overlay,
+		// IME) is skipped entirely. A machine where its pipeline cannot be created still plays, and
+		// an overlay failure stops hiding the rest of the emulator.
+		if (SystemOverlayDisabled()) {
+			return false;
+		}
 		OverlaySnapshot snapshot;
 		const bool      has_overlay = GetOverlaySnapshot(&snapshot);
 		const auto now = Clock::now();
