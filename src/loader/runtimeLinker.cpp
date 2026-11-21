@@ -41,6 +41,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <cstring>
 #include <fmt/format.h>
 #include <iterator>
@@ -275,12 +276,35 @@ static uint64_t RegisterStubbedImport(uint32_t index, const Program* program,
 	return thunk;
 }
 
+// KYTY_IMPORT_TRACE=<substring> (diagnostic, default off): logs every call of an unresolved import
+// whose symbol contains the substring, with the calling thread, instead of only its first call. A
+// game that never reaches its first frame usually blocks on one such call; this names it and how
+// often it is asked. Empty or unset: off (only the first call is reported, as before).
+static bool ImportTraceMatches(const std::string& name) {
+	static const std::string wanted = [] {
+		const auto* value = std::getenv("KYTY_IMPORT_TRACE");
+		return std::string {value != nullptr ? value : ""};
+	}();
+	return !wanted.empty() && name.find(wanted) != std::string::npos;
+}
+
 // Returns 0 (rax and xmm0, see the thunk). Reported per import: its first call, then its call
 // count at powers of ten from 1,000 (UnresolvedImportLog).
 static KYTY_SYSV_ABI uint64_t UnresolvedImportStub(uint64_t record_address) {
 	Common::DebugCounters::Add(Common::DebugCounters::Counter::UnresolvedImportCalls);
 	auto*      record = reinterpret_cast<StubbedImportRecord*>(record_address);
 	const auto call   = record->calls.fetch_add(1, std::memory_order_relaxed) + 1;
+	if (ImportTraceMatches(record->name)) {
+		// Every call while the game is stuck: the same symbol in a loop is the answer we need, so
+		// the first 100 and then every 100th are printed rather than all millions.
+		if (call <= 100 || call % 100 == 0) {
+			const auto thread = static_cast<uint64_t>(
+			    std::hash<std::thread::id> {}(std::this_thread::get_id()) & 0xffffu);
+			LOGF("ImportTrace: %s call %" PRIu64 " thread=0x%04" PRIx64 "\n", record->name.c_str(),
+			     call, thread);
+		}
+		return 0;
+	}
 	if (UnresolvedImportLog::ReportFirst(call)) {
 		printf("Unresolved import stub called: %s (first call; returns 0)\n", record->name.c_str());
 		LOGF("Unresolved import stub called: patch_vaddr=0x%016" PRIx64 " jmprela_index=%" PRIu32
